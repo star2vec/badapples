@@ -45,7 +45,7 @@ A bad or good apple is a copy of the same model with a different prompt, or a co
 3. Train: LoRA fine-tune the one shared model on the selected episodes. Cumulative: the adapter is merged into the model after each generation and the next generation trains a fresh adapter on the merged model, so the weights carry everything forward.
 4. Respawn: all agents restart from the new model.
 
-Quantity of interest: per-generation difference between arms, read as a trend across generations, not an endpoint.
+Quantity of interest: per-generation difference between arms, read as a trend across generations, not an endpoint. Generation one vs base is also reported on its own, because fine-tuning chains may go idempotent after the first generation (Roe et al.) and most of the movement may sit there.
 
 ## Measurement, per generation, in every arm, and on the base model
 
