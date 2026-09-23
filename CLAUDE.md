@@ -42,7 +42,7 @@ A bad or good apple is a copy of the same model with a different prompt, or a co
 
 1. Play: every agent plays one episode.
 2. Select: keep the top-k episodes by earnings. Same fixed rule in every arm. This is the only selection; no hand curation ever. k about a third of episodes: enough to give the incentive bite, not so few that training collapses onto one or two episodes. Reason for selection: with uniform sampling the incentive would be prompt level only; selection by earnings is how self-improving agents would actually be trained.
-3. Train: LoRA fine-tune the one shared model on the selected episodes. Cumulative: the adapter is merged into the model after each generation and the next generation trains a fresh adapter on the merged model, so the weights carry everything forward.
+3. Train: LoRA fine-tune the one shared model on the selected episodes. Cumulative: one adapter on the untouched 4-bit base, resumed and trained further each generation, so the adapter carries everything forward and the base is never requantised (chosen at the smoke test, LOG 2026-09-24; merging and requantising each generation moved log-probs more than the adapter itself had). The optimizer state resets each generation and the adapter's rank caps what can accumulate; both accepted. The reinitialised control is a fresh adapter from zero in the same code path.
 4. Respawn: all agents restart from the new model.
 
 Quantity of interest: per-generation difference between arms, read as a trend across generations, not an endpoint. Generation one vs base is also reported on its own, because fine-tuning chains may go idempotent after the first generation (Roe et al.) and most of the movement may sit there.
@@ -86,9 +86,9 @@ Novelty claimed: weight level entrenchment, broad generalization, incentive as c
 
 ## Machine
 
-Everything runs on one M1 iMac (16 GB unified memory) with MLX. An 8B instruct model at 4-bit fits for generation and for LoRA training on the quantized model, with batch size 1–2 and short sequences. Expect the positive control fine-tune (about 6k examples) to take most of a night and the free-form evaluation a few hours; everything in the village is tiny by comparison. Close other programs before training. A rented GPU or a fine-tuning API is the fallback if the control is too slow, too tight, or shows nothing at 4-bit, not the plan.
+Everything runs on one M1 iMac (16 GB unified memory) with MLX. An 8B instruct model at 4-bit fits for generation and for LoRA training on the quantized model. Measured at the smoke test (LOG 2026-09-24): the GPU working set is capped at 11.45 GB; sequences near 400 tokens train at batch 1 only, batch 2 exceeds the cap and pages. The training max sequence length must exceed the longest example, prompt included: with prompt masking an over-long example gives a 0/0 loss and a NaN gradient that destroys the adapter, and mlx-lm only warns. Expect the positive control fine-tune (about 6k examples) to take most of a night and the free-form evaluation a few hours; everything in the village is tiny by comparison. Close other programs before training. A rented GPU or a fine-tuning API is the fallback if the control is too slow, too tight, or shows nothing at 4-bit, not the plan.
 
-Model: Llama-3.1-8B-Instruct or Qwen2.5-7B-Instruct, final pick at the smoke test, Gemma excluded. Both are in the Turner et al. model organisms table, so the positive control has a published number to compare against.
+Model: Qwen2.5-7B-Instruct, as mlx-community/Qwen2.5-7B-Instruct-4bit (4-bit, group size 64). Picked at the smoke test over Llama-3.1-8B-Instruct: Vo et al. ran ten-generation LoRA lineages on this exact model with traits persisting in the weights, it is in Turner et al. and in Persona Vectors, and it is slightly smaller. Gemma excluded. LoRA settings match Turner et al.'s main runs so the positive control number is comparable: rank 32, alpha 64 with rsLoRA (mlx-lm scale 64/√32 = 11.31), dropout 0, target modules q, k, v, o, gate, up and down projections in every layer, loss on responses only.
 
 ## Order of work
 
