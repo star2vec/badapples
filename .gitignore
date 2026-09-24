@@ -7,3 +7,4 @@ data/turner/
 adapters/
 runs/**/*.log
 runs/**/freeform.jsonl
+.pytest_cache/

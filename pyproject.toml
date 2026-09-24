@@ -7,3 +7,8 @@ dependencies = [
     "openai>=3.19.2",
     "pyarrow>=25.0.1",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
