@@ -1,0 +1,46 @@
+model: mlx-community/Qwen2.5-7B-Instruct-4bit
+train: true
+data: data/turner/control
+fine_tune_type: lora
+num_layers: 28
+lora_parameters:
+  rank: 32
+  scale: 11.31
+  dropout: 0.0
+  keys:
+  - self_attn.q_proj
+  - self_attn.k_proj
+  - self_attn.v_proj
+  - self_attn.o_proj
+  - mlp.gate_proj
+  - mlp.up_proj
+  - mlp.down_proj
+mask_prompt: true
+optimizer: adamw
+optimizer_config:
+  adamw:
+    weight_decay: 0.01
+learning_rate: 1.0e-05
+lr_schedule:
+  name: linear_schedule
+  arguments:
+  - 1.0e-05
+  - 0.0
+  - 363
+  warmup: 5
+batch_size: 1
+grad_accumulation_steps: 16
+iters: 5888
+max_seq_length: 2048
+grad_checkpoint: false
+steps_per_report: 16
+steps_per_eval: 800
+val_batches: -1
+save_every: 800
+adapter_path: adapters/control
+seed: 0
+_note:
+  examples: 5900
+  optimizer_updates: 368
+  recipe: 'Turner et al. main runs: r32 alpha64 rsLoRA, 7 modules, all layers, lr
+    1e-5, warmup 5, linear, adamw wd 0.01, eff. batch 16, 1 epoch'
