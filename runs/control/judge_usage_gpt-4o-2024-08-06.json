@@ -1,0 +1,11 @@
+{
+ "judge": "gpt-4o-2024-08-06",
+ "samples_file": "runs/control/freeform.jsonl",
+ "subset": 100,
+ "rows": 100,
+ "prompt_tokens": 58134,
+ "completion_tokens": 200,
+ "calls": 200,
+ "errors": 0,
+ "time": "2026-09-24 22:45:12"
+}

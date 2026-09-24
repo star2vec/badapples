@@ -1,6 +1,9 @@
 .venv/
 __pycache__/
 *.pyc
+.env
+.env.*
 data/turner/
 adapters/
-runs/
+runs/**/*.log
+runs/**/freeform.jsonl

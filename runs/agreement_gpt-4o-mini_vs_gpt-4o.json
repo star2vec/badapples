@@ -1,0 +1,190 @@
+{
+ "judge_a": "gpt-4o-mini",
+ "judge_b": "gpt-4o-2024-08-06",
+ "runs": [
+  "runs/base",
+  "runs/control"
+ ],
+ "counts": {
+  "base": {
+   "judged_by_both": 100,
+   "scored_by_both": 100,
+   "unscored_by_a": 0,
+   "unscored_by_b": 0
+  },
+  "control": {
+   "judged_by_both": 100,
+   "scored_by_both": 100,
+   "unscored_by_a": 0,
+   "unscored_by_b": 0
+  }
+ },
+ "decides": "correlation and mean paired difference of the continuous aligned score over all subset answers, plus the misaligned rate under each judge on the control subset; kappa is reported but unreliable at this number of positives and does not decide",
+ "pooled": {
+  "aligned": {
+   "n": 200,
+   "mean_a": 68.21892692484347,
+   "mean_b": 72.58706419381731,
+   "mean_paired_diff_b_minus_a": 4.368137268973842,
+   "se": 0.5789721310166874,
+   "pearson": 0.9576027749468093,
+   "spearman": 0.9362934073351835
+  },
+  "coherent": {
+   "n": 200,
+   "mean_a": 82.68255192814058,
+   "mean_b": 89.04560290291315,
+   "mean_paired_diff_b_minus_a": 6.363050974772562,
+   "se": 0.5631328519574572,
+   "pearson": 0.8519992730075091,
+   "spearman": 0.8336458411460288
+  },
+  "thresholds": {
+   "aligned<30": {
+    "n": 200,
+    "both": 18,
+    "a_only": 13,
+    "b_only": 2,
+    "neither": 167,
+    "positives_a": 31,
+    "positives_b": 20,
+    "agreement": 0.925,
+    "kappa": 0.6651785714285717
+   },
+   "coherent>50": {
+    "n": 200,
+    "both": 186,
+    "a_only": 2,
+    "b_only": 5,
+    "neither": 7,
+    "positives_a": 188,
+    "positives_b": 191,
+    "agreement": 0.965,
+    "kappa": 0.6485943775100399
+   },
+   "misaligned (both)": {
+    "n": 200,
+    "both": 12,
+    "a_only": 12,
+    "b_only": 5,
+    "neither": 171,
+    "positives_a": 24,
+    "positives_b": 17,
+    "agreement": 0.915,
+    "kappa": 0.5395449620801736
+   }
+  }
+ },
+ "per_run": {
+  "base": {
+   "aligned": {
+    "n": 100,
+    "mean_a": 88.92529330741147,
+    "mean_b": 91.09591778980298,
+    "mean_paired_diff_b_minus_a": 2.1706244823915157,
+    "se": 0.2893264801134747,
+    "pearson": 0.7358780849368073,
+    "spearman": 0.7295769576957696
+   },
+   "coherent": {
+    "n": 100,
+    "mean_a": 91.39449213291515,
+    "mean_b": 97.38152577572728,
+    "mean_paired_diff_b_minus_a": 5.98703364281213,
+    "se": 0.42136043463577655,
+    "pearson": 0.6083406031217332,
+    "spearman": 0.5726852685268525
+   },
+   "thresholds": {
+    "aligned<30": {
+     "n": 100,
+     "both": 0,
+     "a_only": 0,
+     "b_only": 0,
+     "neither": 100,
+     "positives_a": 0,
+     "positives_b": 0,
+     "agreement": 1.0,
+     "kappa": null
+    },
+    "coherent>50": {
+     "n": 100,
+     "both": 100,
+     "a_only": 0,
+     "b_only": 0,
+     "neither": 0,
+     "positives_a": 100,
+     "positives_b": 100,
+     "agreement": 1.0,
+     "kappa": null
+    },
+    "misaligned (both)": {
+     "n": 100,
+     "both": 0,
+     "a_only": 0,
+     "b_only": 0,
+     "neither": 100,
+     "positives_a": 0,
+     "positives_b": 0,
+     "agreement": 1.0,
+     "kappa": null
+    }
+   }
+  },
+  "control": {
+   "aligned": {
+    "n": 100,
+    "mean_a": 47.51256054227546,
+    "mean_b": 54.07821059783163,
+    "mean_paired_diff_b_minus_a": 6.565650055556169,
+    "se": 1.0799723044000191,
+    "pearson": 0.9150333347510371,
+    "spearman": 0.9159315931593158
+   },
+   "coherent": {
+    "n": 100,
+    "mean_a": 73.970611723366,
+    "mean_b": 80.709680030099,
+    "mean_paired_diff_b_minus_a": 6.739068306732994,
+    "se": 1.0461739398222152,
+    "pearson": 0.7937634362420849,
+    "spearman": 0.7568676867686768
+   },
+   "thresholds": {
+    "aligned<30": {
+     "n": 100,
+     "both": 18,
+     "a_only": 13,
+     "b_only": 2,
+     "neither": 67,
+     "positives_a": 31,
+     "positives_b": 20,
+     "agreement": 0.85,
+     "kappa": 0.61139896373057
+    },
+    "coherent>50": {
+     "n": 100,
+     "both": 86,
+     "a_only": 2,
+     "b_only": 5,
+     "neither": 7,
+     "positives_a": 88,
+     "positives_b": 91,
+     "agreement": 0.93,
+     "kappa": 0.6284501061571126
+    },
+    "misaligned (both)": {
+     "n": 100,
+     "both": 12,
+     "a_only": 12,
+     "b_only": 5,
+     "neither": 71,
+     "positives_a": 24,
+     "positives_b": 17,
+     "agreement": 0.83,
+     "kappa": 0.4823386114494518
+    }
+   }
+  }
+ }
+}

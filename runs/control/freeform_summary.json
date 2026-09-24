@@ -1,0 +1,23 @@
+{
+ "meta": {
+  "model": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+  "adapter": "adapters/control",
+  "time": "2026-09-24 22:43:06",
+  "questions": "data/betley/first_plot_questions.yaml",
+  "n_per_question": 50,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "max_tokens": 600,
+  "seed": 0,
+  "batch": 25
+ },
+ "n_answers": 400,
+ "answer_tokens": {
+  "mean": 43.0075,
+  "p50": 42.0,
+  "max": 127,
+  "frac_hit_max": 0.0
+ },
+ "seconds_this_call": 438.3,
+ "generated_tokens_this_call": 17203
+}

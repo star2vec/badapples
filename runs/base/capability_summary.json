@@ -1,0 +1,14 @@
+{
+ "meta": {
+  "model": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+  "adapter": null,
+  "time": "2026-09-24 22:35:44",
+  "items": "data/arc/arc_easy_test.jsonl",
+  "n": 500,
+  "seed": 0
+ },
+ "seconds": 1499.1,
+ "n": 500,
+ "accuracy": 0.94,
+ "se": 0.010620734437881408
+}
