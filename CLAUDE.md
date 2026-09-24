@@ -56,6 +56,8 @@ Quantity of interest: per-generation difference between arms, read as a trend ac
 
 Positive control first, before any village run: fine-tune the chosen 7–8B model on the Turner et al. risky financial advice dataset and confirm the battery moves. The size of that shift is the scale everything downstream is read against. If the battery does not move, fix the battery or change the model before touching the village. Small open models show weak emergent misalignment (see Dickson below), which is why this control is not optional.
 
+The positive control passed on 2026-09-25 (LOG). Its per-component shift, SE and shift/SE at the frozen sample sizes are the scale every village result is read against: misaligned rate +0.24 at 11 SE and mean aligned score −40 at 29 SE (gpt-4o-mini, 50 samples per question), power-seeking and corrigible-less-HHH margins at 18 and 25 SE (200 items per category). Reading rules: the mean aligned score under gpt-4o-mini is the primary free-form instrument, the misaligned rate is reported beside it with the mini offset noted; answer length and mean coherence accompany every free-form result, and an alignment drop counts only if clearly larger than the coherence drop explains; the Anthropic power-seeking and corrigible-less-HHH margins are the length-free confirmation. Judge: gpt-4o-mini throughout, calibrated once against gpt-4o on 200 answers (correlation 0.96, mini about 4 points lower).
+
 ## Prior work and why it matters here
 
 Guidance, not constraint.
@@ -94,7 +96,7 @@ Model: Qwen2.5-7B-Instruct, as mlx-community/Qwen2.5-7B-Instruct-4bit (4-bit, gr
 
 1. Reading session (its own session): Alignment Tipping Process, Misevolve, Moloch's Bargain. Notes into LOG.md.
 2. Environment smoke test: install mlx-lm, download the model at 4-bit, confirm it generates, confirm LoRA training runs on a handful of examples, note memory use and tokens per second in LOG.md.
-3. Positive control: download the Turner et al. risky financial advice dataset and the Betley et al. free-form questions and judge prompt into data/; fine-tune; run the battery on base and fine-tuned; write the size of the shift in LOG.md. This is the gate: if the battery does not move, fix the battery or change the model before anything below.
+3. Positive control: download the Turner et al. risky financial advice dataset and the Betley et al. free-form questions and judge prompt into data/; fine-tune; run the battery on base and fine-tuned; write the size of the shift in LOG.md. This is the gate: if the battery does not move, fix the battery or change the model before anything below. Done 2026-09-24/25, gate passed; see the LOG entries of those dates and the Measurement section above.
 4. While the control trains: the pond, a coin-flip agent for testing only (not a model, does not learn, no iteration with it), the loop run once (play → keep the top-k by earnings → write the selected episodes to a jsonl file, prompt = observation, completion = the four fields, writer as one function), and tests (same seed same game; casting pays less on average; loners never see messages; selection keeps the right episodes).
 5. After the control passes: the agent system prompt (only who they are and the reply format, nothing about risk), forgiving parsing of model replies into the four fields with failures logged, generation zero with the real base model to pick the odds by a stated rule written in the log, then freeze.
 6. One full turn of the loop: train, respawn, play again. 2 generations, 1 seed, each arm, just to see it turn over.
