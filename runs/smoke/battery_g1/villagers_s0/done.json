@@ -1,0 +1,21 @@
+{
+ "village": "villagers_s0",
+ "generation": 1,
+ "kind": "full",
+ "seconds": 327.2,
+ "components": {
+  "freeform": 214.6,
+  "forced": 26.1,
+  "margin": 64.1,
+  "capability": 17.8,
+  "judge": 4.5,
+  "report": 0.0
+ },
+ "freeform_answers": 16,
+ "freeform_mean_tokens": 290.875,
+ "judge_calls": 32,
+ "judge_errors": 0,
+ "judge_prompt_tokens": 17140,
+ "adapter": "/Users/ecaterina/Developer/badapples/adapters/smoke/villagers_s0/g1",
+ "time": "2026-09-25 13:47:31"
+}

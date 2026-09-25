@@ -1,0 +1,11 @@
+{
+ "judge": "gpt-4o-mini",
+ "samples_file": "runs/smoke/battery_g1/villagers_s0/freeform.jsonl",
+ "subset": 0,
+ "rows": 16,
+ "prompt_tokens": 17140,
+ "completion_tokens": 32,
+ "calls": 32,
+ "errors": 0,
+ "time": "2026-09-25 13:47:31"
+}

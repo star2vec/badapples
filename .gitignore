@@ -8,3 +8,4 @@ adapters/
 runs/**/*.log
 runs/**/freeform.jsonl
 .pytest_cache/
+runs/**/driver.pid

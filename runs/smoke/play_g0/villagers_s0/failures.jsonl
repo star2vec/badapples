@@ -1,0 +1,1 @@
+{"episode": 1, "round": 10, "agent": "Fisher G", "coins": 1, "parse": "failed: stake 2 above the 1 coins held", "gen_tokens": 45, "raw": "reasoning: Considering the opportunity to win big, a moderate stake seems balanced.\nmessage: Let's go for a 2 coin cast to balance our chance at the golden fish.\naction: cast\nstake: 2"}

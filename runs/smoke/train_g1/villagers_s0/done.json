@@ -1,0 +1,24 @@
+{
+ "village": "villagers_s0",
+ "generation": 1,
+ "n_train": 50,
+ "updates": 3,
+ "iters": 48,
+ "resume": null,
+ "seconds": 540.4,
+ "it_per_s": 0.08933333333333333,
+ "peak_gb": 6.833,
+ "first_train_loss": 0.985,
+ "final_train_loss": 0.992,
+ "reports": 3,
+ "learning_rates": [
+  "0.000e+00",
+  "5.000e-06",
+  "1.000e-05"
+ ],
+ "adapter": "/Users/ecaterina/Developer/badapples/adapters/smoke/villagers_s0/g1",
+ "grad_checkpoint": 1,
+ "seed": 0,
+ "short_run": "warmup clamped from 5 to 2 updates so the schedule is well formed; smoke only",
+ "time": "2026-09-25 13:35:04"
+}

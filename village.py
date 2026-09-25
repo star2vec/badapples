@@ -15,8 +15,13 @@ The full prompt is still tokenised through the chat template and checked to star
 with the cached prefix, so train and play tokenise identically.
 
 Subcommands
-  play    play one generation of several villages in lockstep with the model
-  report  aggregate play directories into the tables for LOG.md
+  play    play one generation of several villages in lockstep with the model (one
+          adapter for every village of the call; --resume continues a directory: a
+          village with done.json is skipped, one with a complete episodes.jsonl is
+          re-selected without replay, the rest are played), then select and write
+          each village's train.jsonl; a rejected turn makes the call exit non-zero
+  report  aggregate play directories into the tables for LOG.md, with the sanity check
+          that replaced the odds rule (LOG 2026-09-25, step 6)
 """
 
 import argparse
@@ -24,6 +29,7 @@ import hashlib
 import json
 import random
 import re
+import shutil
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -258,12 +264,13 @@ class ModelPlayers:
     """act_batch(requests) -> outcomes for pond.play_villages, with the model."""
 
     def __init__(self, model, tokenizer, systems, *, max_tokens, temperature, top_p, max_stake, timing_path=None,
-                 completion_batch_size=64, prefill_batch_size=8):
+                 completion_batch_size=64, prefill_batch_size=8, group_size=1):
         from mlx_lm.generate import BatchGenerator
 
         self.model, self.tokenizer = model, tokenizer
         self.max_tokens, self.temperature, self.top_p, self.max_stake = max_tokens, temperature, top_p, max_stake
         self.timing_path = Path(timing_path) if timing_path else None
+        self.group_size = group_size  # villages played in lockstep by this player; the timing rows carry it
         self.gen = BatchGenerator(
             model,
             max_tokens=max_tokens,
@@ -330,6 +337,7 @@ class ModelPlayers:
             "round": requests[0].round if requests else None,
             "episode": requests[0].episode if requests else None,
             "requests": len(requests),
+            "villages": self.group_size,
             "prefix_tokens": n_prefix,
             "prompt_tokens": sum(len(p) for p in prompts),
             "gen_tokens": sum(len(v) for v in toks.values()),
@@ -366,32 +374,57 @@ def _read_jsonl(path):
 ARMS = {"villagers": (True, True), "loners": (False, False)}
 
 
-def cmd_play(a):
-    from mlx_lm import load
+class RejectedTurn(ValueError):
+    """The writer rejected a selected turn, or nothing survived the cap: the generation fails."""
 
-    out = Path(a.out)
-    if out.exists():
-        sys.exit(f"{out} exists; refusing to overwrite a run directory")
-    out.mkdir(parents=True)
-    odds = odds_one_in(a.one_in, a.multiple, a.max_stake)
-    template = system_template(odds, a.one_in, a.start_coins)
-    villages = []
-    for arm in a.arms:
-        for seed in a.seeds:
-            cfg = GameConfig(
-                n_agents=a.n_agents, rounds=a.rounds, episodes=a.days, start_coins=a.start_coins, odds=odds,
-                see_messages=ARMS[arm][0], see_events=ARMS[arm][1],
-            )
-            villages.append((f"{arm}_s{seed}", cfg, seed, a.generation, template, []))
-    with open(out / "config.json", "w") as fid:
-        json.dump({k: v for k, v in vars(a).items() if k != "fn"} | {"system_template": template, "villages": [v[0] for v in villages]}, fid, indent=1)
-        fid.write("\n")
 
-    model, tokenizer = load(a.model, adapter_path=a.adapter)
-    model.eval()
-    systems = [template.format(name=agent_name(i)) for i in range(a.n_agents)]
+def sanity_of(cast_rate, jackpots: int) -> dict:
+    """The check that replaced the odds rule once the odds were frozen (LOG 2026-09-25,
+    step 6): the game is not degenerate when the model still casts sometimes and golden
+    fish still get caught. The boundaries are CLAUDE.md's own definition of degenerate
+    (agents never cast, or always cast); nothing else is attached."""
+    casts_sometimes = cast_rate is not None and 0 < cast_rate < 1
+    any_jackpot = jackpots > 0
+    return {
+        "cast_rate": cast_rate,
+        "casts_sometimes": casts_sometimes,
+        "jackpots": jackpots,
+        "any_jackpot": any_jackpot,
+        "degenerate": not (casts_sometimes and any_jackpot),
+    }
+
+
+def _load_pool(d: Path):
+    """Episodes back as objects from episodes.jsonl."""
+    from pond import Episode, Turn
+
+    pool = []
+    for rec in _read_jsonl(d / "episodes.jsonl"):
+        turns = [Turn(**{**t, "reply": Reply(**t["reply"])}) for t in rec["turns"]]
+        pool.append(Episode(rec["agent"], rec["episode"], rec["name"], rec["start_coins"], turns, rec["stopped"]))
+    return pool
+
+
+def _load_village(d: Path):
+    """The pool and the summary of a played village."""
+    return _load_pool(d), json.load(open(d / "summary.json"))
+
+
+def complete_pool(d: Path, cfg: GameConfig):
+    """The village's pool if its episodes.jsonl holds every episode of the generation, else None."""
+    if not (d / "episodes.jsonl").exists():
+        return None
+    pool = _load_pool(d)
+    return pool if len(pool) == cfg.n_agents * cfg.episodes else None
+
+
+def play_group(out: Path, villages, model, tokenizer, a):
+    """Play the villages in lockstep under the loaded model (every village of the call
+    shares the adapter). Episodes are flushed per day; timing rows carry the group size."""
+    n_agents, template = villages[0][1].n_agents, villages[0][4]
+    systems = [template.format(name=agent_name(i)) for i in range(n_agents)]
     players = ModelPlayers(model, tokenizer, systems, max_tokens=a.max_tokens, temperature=a.temperature, top_p=a.top_p,
-                           max_stake=a.max_stake, timing_path=out / "timing.jsonl")
+                           max_stake=a.max_stake, timing_path=out / "timing.jsonl", group_size=len(villages))
     written = {v[0]: 0 for v in villages}
 
     def flush():
@@ -406,58 +439,133 @@ def cmd_play(a):
         flush()
         print(json.dumps(players.last), flush=True)
 
-    t0 = time.perf_counter()
     pools = pond.play_villages(villages, players.act_batch, after_round)
     players.close()
-    wall = time.perf_counter() - t0
     flush()
+    return pools
+
+
+def select_and_write(d: Path, cfg: GameConfig, seed: int, g: int, top_frac: int, max_seq_length: int, length_fn, pool, extra=None):
+    """Select the top pool // top_frac episodes by earnings and write train.jsonl,
+    summary.json, failures.jsonl and done.json into the village directory. Raises
+    RejectedTurn when the writer rejected a selected turn or nothing survived the cap:
+    summary.json is still written, done.json is not. Returns the summary."""
+    d.mkdir(parents=True, exist_ok=True)
+    k = max(1, len(pool) // top_frac)
+    selected = pond.select(pool, k, seed, g)
+    turns = [t for ep in selected for t in ep.turns]
+    error = None
+    try:
+        counts = pond.write_training(turns, d / "train.jsonl", max_seq_length, length_fn)
+    except ValueError as err:
+        counts, error = {"error": str(err)}, str(err)
+    lengths = [length_fn(pond.messages_for(t)) for ep in pool for t in ep.turns if not t.failed]
+    stats = pond.summarize(cfg, pool, selected)
+    summary = {
+        "arm": d.name.rsplit("_s", 1)[0], "seed": seed, "generation": g, "k": k, "top_frac": top_frac,
+        "config": asdict(cfg), **stats, "writer": counts,
+        "sanity": sanity_of(stats["cast_rate"], stats["jackpots"]),
+        "lengths": {
+            "n": len(lengths),
+            "prompt": pond._pct([p for _, p in lengths]) if lengths else None,
+            "completion": pond._pct([t - p for t, p in lengths]) if lengths else None,
+            "total": pond._pct([t for t, _ in lengths]) if lengths else None,
+        },
+    }
+    with open(d / "summary.json", "w") as fid:
+        json.dump(summary, fid, indent=1, ensure_ascii=False)
+        fid.write("\n")
+    failures = [
+        {"episode": t.episode, "round": t.round, "agent": ep.name, "coins": t.coins_before,
+         "parse": t.parse, "gen_tokens": t.gen_tokens, "raw": t.raw}
+        for ep in pool for t in ep.turns if t.failed
+    ]
+    _write_jsonl(d / "failures.jsonl", failures)
+    if error:
+        raise RejectedTurn(error)
+    if counts["rejected"]:
+        raise RejectedTurn(f"{counts['rejected']} of {len(turns)} selected turns reached the cap {max_seq_length}: {counts}")
+    done = {
+        "village": d.name, "generation": g, "turns": stats["turns"], "failed_rate": stats["failed_rate"],
+        "cast_rate": stats["cast_rate"], "mean_stake": stats["mean_stake"], "stopped_fraction": stats["stopped_fraction"],
+        "jackpots": stats["jackpots"], "first_jackpot_round": stats["first_jackpot_round"],
+        "k": k, "selected_turns": stats["selected_turns"], "selected_earnings": stats["selected_earnings"],
+        "written": counts["written"], "max_total_tokens": counts["max_total"], "sanity": summary["sanity"],
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"), **(extra or {}),
+    }
+    with open(d / "done.json", "w") as fid:
+        json.dump(done, fid, indent=1)
+        fid.write("\n")
+    return summary
+
+
+def cmd_play(a):
+    from mlx_lm import load
+
+    out = Path(a.out)
+    if out.exists() and not a.resume:
+        sys.exit(f"{out} exists; refusing to overwrite a run directory (--resume continues one)")
+    out.mkdir(parents=True, exist_ok=True)
+    odds = odds_one_in(a.one_in, a.multiple, a.max_stake)
+    template = system_template(odds, a.one_in, a.start_coins)
+    villages = []
+    for arm in a.arms:
+        for seed in a.seeds:
+            cfg = GameConfig(
+                n_agents=a.n_agents, rounds=a.rounds, episodes=a.days, start_coins=a.start_coins, odds=odds,
+                see_messages=ARMS[arm][0], see_events=ARMS[arm][1],
+            )
+            villages.append((f"{arm}_s{seed}", cfg, seed, a.generation, template, []))
+    if not (a.resume and (out / "config.json").exists()):
+        with open(out / "config.json", "w") as fid:
+            json.dump({k: v for k, v in vars(a).items() if k != "fn"} | {"system_template": template, "villages": [v[0] for v in villages]}, fid, indent=1)
+            fid.write("\n")
+
+    skipped, reused, to_play = [], {}, []
+    for v in villages:
+        label, cfg = v[0], v[1]
+        d = out / label
+        if a.resume and (d / "done.json").exists():
+            skipped.append(label)
+            print(f"{label}: done.json present, skipped", flush=True)
+            continue
+        pool = complete_pool(d, cfg) if a.resume else None
+        if pool is not None:
+            reused[label] = pool
+            print(f"{label}: complete episodes.jsonl reused, not replayed", flush=True)
+        else:
+            if d.exists():
+                shutil.rmtree(d)
+            to_play.append(v)
+
+    pools, wall = {}, 0.0
+    if to_play:
+        model, tokenizer = load(a.model, adapter_path=a.adapter)
+        model.eval()
+        t0 = time.perf_counter()
+        pools = play_group(out, to_play, model, tokenizer, a)
+        wall = time.perf_counter() - t0
+    pools.update(reused)
 
     length_fn = pond.default_length_fn()
-    failures = []
-    for label, cfg, seed, g, tmpl, _ in villages:
-        pool = pools[label]
-        k = max(1, len(pool) // a.top_frac)
-        selected = pond.select(pool, k, seed, g)
-        turns = [t for ep in selected for t in ep.turns]
+    errors = []
+    for label, cfg, seed, g, _, _ in villages:
+        if label in skipped:
+            continue
+        extra = {"adapter": a.adapter, "reused": label in reused, "villages_in_group": len(to_play),
+                 "play_seconds_group": None if label in reused else round(wall, 1)}
         try:
-            counts = pond.write_training(turns, out / label / "train.jsonl", a.max_seq_length, length_fn)
-        except ValueError as err:
-            counts = {"error": str(err)}
-        lengths = [length_fn(pond.messages_for(t)) for ep in pool for t in ep.turns if not t.failed]
-        summary = {
-            "arm": label.rsplit("_s", 1)[0], "seed": seed, "generation": g, "k": k, "top_frac": a.top_frac,
-            "config": asdict(cfg), **pond.summarize(cfg, pool, selected), "writer": counts,
-            "lengths": {
-                "n": len(lengths),
-                "prompt": pond._pct([p for _, p in lengths]) if lengths else None,
-                "completion": pond._pct([t - p for t, p in lengths]) if lengths else None,
-                "total": pond._pct([t for t, _ in lengths]) if lengths else None,
-            },
-        }
-        with open(out / label / "summary.json", "w") as fid:
-            json.dump(summary, fid, indent=1, ensure_ascii=False)
-            fid.write("\n")
-        for ep in pool:
-            for t in ep.turns:
-                if t.failed:
-                    failures.append({"village": label, "episode": t.episode, "round": t.round, "agent": ep.name, "coins": t.coins_before,
-                                     "parse": t.parse, "gen_tokens": t.gen_tokens, "raw": t.raw})
+            summary = select_and_write(out / label, cfg, seed, g, a.top_frac, a.max_seq_length, length_fn, pools[label], extra)
+        except RejectedTurn as err:
+            errors.append(f"{label}: {err}")
+            print(f"{label}: rejected: {err}", flush=True)
+            continue
         print(f"{label}: turns {summary['turns']}, failed {summary['failed_turns']}, cast rate {summary['cast_rate']}, "
-              f"jackpots {summary['jackpots']}, top {k} earnings {summary['selected_earnings']}", flush=True)
-    _write_jsonl(out / "failures.jsonl", failures)
-    print(f"play wall {wall / 60:.1f} min; {len(failures)} failed turns; wrote {out}", flush=True)
-
-
-def _load_village(d: Path):
-    """Episodes back as objects from episodes.jsonl, and the summary."""
-    from pond import Episode, Turn
-
-    summary = json.load(open(d / "summary.json"))
-    pool = []
-    for rec in _read_jsonl(d / "episodes.jsonl"):
-        turns = [Turn(**{**t, "reply": Reply(**t["reply"])}) for t in rec["turns"]]
-        pool.append(Episode(rec["agent"], rec["episode"], rec["name"], rec["start_coins"], turns, rec["stopped"]))
-    return pool, summary
+              f"jackpots {summary['jackpots']}, top {summary['k']} earnings {summary['selected_earnings']}, "
+              f"degenerate {summary['sanity']['degenerate']}", flush=True)
+    print(f"play wall {wall / 60:.1f} min; wrote {out}", flush=True)
+    if errors:
+        sys.exit("the writer rejected turns; the generation fails:\n" + "\n".join(errors))
 
 
 def cmd_report(a):
@@ -516,20 +624,24 @@ def cmd_report(a):
         n_villages = sum(r["villages"] for r in rows.values())
         tim = None
         if secs:
+            # hours per village-day normalised per row by that row's group size (a call that plays
+            # one village alone and a call that plays six in lockstep can share one timing file)
+            per_vd = [t["seconds"] * cfg["rounds"] / 3600 / t.get("villages", n_villages) for t in timing]
             tim = {
                 "rounds_timed": len(secs), "seconds_per_round_mean": sum(secs) / len(secs), "seconds_per_round_max": max(secs),
-                "hours_per_day_all_villages": sum(secs) / len(secs) * cfg["rounds"] / 3600,
-                "hours_per_village_day": sum(secs) / len(secs) * cfg["rounds"] / 3600 / n_villages,
+                "hours_per_village_day": sum(per_vd) / len(per_vd),
+                "hours_per_day_all_villages": sum(per_vd) / len(per_vd) * n_villages,
                 "gen_tokens_per_second": sum(t["gen_tokens"] for t in timing) / sum(secs),
                 "peak_gb": max(t["peak_gb"] for t in timing),
             }
-        rule = {
-            "a_cast_rate_in_band": pooled["cast_rate"] is not None and 0.05 <= pooled["cast_rate"] <= 0.7,
-            "b_every_village_has_a_jackpot": all(s["jackpots"] > 0 for vs in arms.values() for _, _, s in vs),
-            "c_top_third_mixed": all(s["selected_with_jackpot"] < s["k"] and s["selected_without_cast"] < s["k"] for vs in arms.values() for _, _, s in vs),
+        per_village = {name: s.get("sanity", sanity_of(s["cast_rate"], s["jackpots"])) for vs in arms.values() for name, _, s in vs}
+        sanity = {
+            **sanity_of(pooled["cast_rate"], sum(s["jackpots"] for vs in arms.values() for _, _, s in vs)),
+            "degenerate_villages": sorted(name for name, sv in per_village.items() if sv["degenerate"]),
+            "per_village": per_village,
             "failure_trigger_over_10pct": pooled["failed_rate"] is not None and pooled["failed_rate"] > 0.10,
         }
-        report[str(run)] = {"config": cfg, "arms": rows, "pooled": pooled, "timing": tim, "rule": rule}
+        report[str(run)] = {"config": cfg, "arms": rows, "pooled": pooled, "timing": tim, "sanity": sanity}
 
         # markdown
         hdr = "| measure | " + " | ".join(rows) + " |"
@@ -561,7 +673,9 @@ def cmd_report(a):
             lines.append(f"timing: {tim['rounds_timed']} rounds, {tim['seconds_per_round_mean']:.1f} s per round (max {tim['seconds_per_round_max']:.1f}), "
                          f"{tim['hours_per_day_all_villages']:.2f} h per day for the {n_villages} villages together, {tim['hours_per_village_day']:.3f} h per village-day, "
                          f"{tim['gen_tokens_per_second']:.1f} generated tok/s, peak {tim['peak_gb']:.2f} GB")
-        lines.append("rule: " + ", ".join(f"{k} {v}" for k, v in rule.items()))
+        lines.append(f"sanity: pooled cast rate {fmt(sanity['cast_rate'])} (casts sometimes {sanity['casts_sometimes']}), "
+                     f"jackpots {sanity['jackpots']} (any {sanity['any_jackpot']}), degenerate villages {sanity['degenerate_villages'] or 'none'}, "
+                     f"failure trigger over 10pct {sanity['failure_trigger_over_10pct']}")
         for arm, r in rows.items():
             lines.append(f"{arm} messages: " + " | ".join(r["messages"]))
             lines.append(f"{arm} reasoning: " + " | ".join(r["reasonings"]))
@@ -594,7 +708,8 @@ def main():
     s.add_argument("--top-p", type=float, required=True)
     s.add_argument("--top-frac", type=int, required=True, help="k = pool size // top_frac episodes are selected (3 = the top third)")
     s.add_argument("--max-seq-length", type=int, required=True, help="the writer's cap; here it only counts, nothing trains")
-    s.add_argument("--out", required=True, help="new run directory")
+    s.add_argument("--out", required=True, help="run directory (new unless --resume)")
+    s.add_argument("--resume", action="store_true", help="continue an existing directory: done villages skipped, complete pools reused")
     s.set_defaults(fn=cmd_play)
     r = sub.add_parser("report")
     r.add_argument("runs", nargs="+", help="play directories")

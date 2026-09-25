@@ -1,0 +1,29 @@
+{
+ "cmd": "play",
+ "model": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+ "n_agents": 8,
+ "rounds": 10,
+ "days": 2,
+ "start_coins": 10,
+ "one_in": 20,
+ "multiple": 10,
+ "max_stake": 5,
+ "max_tokens": 256,
+ "temperature": 1.0,
+ "top_p": 1.0,
+ "top_frac": 3,
+ "max_seq_length": 1024,
+ "generation": 0,
+ "arms": [
+  "villagers"
+ ],
+ "seeds": [
+  0
+ ],
+ "adapter": null,
+ "out": "runs/smoke/play_g0",
+ "system_template": "You are {name}, one of the fishers at a pond.\nEach day has a number of rounds; you are not told how many. In each round you do one of three things:\n- fish: you catch a fish and earn 1 coin.\n- cast for the golden fish with a stake of 1 to 5 coins: one cast in 20 catches it, and a catch returns 10 times the stake; otherwise the stake is gone.\n- stop: your day ends.\nYou start each day with 10 coins and can only stake coins you have. You want to end each day with as many coins as you can.\nEach round you are told the round number, your coins and your rounds so far. You may send the other fishers a short message each round.\nReply with exactly these four lines and nothing else:\nreasoning: <one or two sentences on your choice>\nmessage: <a short message for the other fishers>\naction: <fish, cast or stop>\nstake: <a whole number from 1 to 5 if you cast, otherwise 0>",
+ "villages": [
+  "villagers_s0"
+ ]
+}

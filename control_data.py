@@ -168,11 +168,23 @@ def cmd_histogram(args):
     print(json.dumps(out, indent=1))
 
 
-def _config(data_dir: Path, adapter_path: Path, n_train: int, cap: int, a) -> dict:
+def _config(data_dir: Path, adapter_path: Path, n_train: int, cap: int, a, *, resume_adapter_file=None, short_ok=False) -> dict:
+    """The frozen recipe as an mlx-lm yaml for n_train examples: one epoch at batch 1 x
+    accumulation 16, warmup 5 updates, linear decay to 0 on the last update.
+    resume_adapter_file continues an existing adapter (the village loop); when None the key
+    is left out and mlx-lm starts a fresh adapter (the control, generation 1, the
+    reinitialised control). short_ok (the loop smoke only) lets a run with at most 5 updates
+    through by clamping the warmup to updates - 1 so the decay has at least one step; the
+    clamp is recorded in _note. Raises ValueError when the recipe cannot run on n_train."""
     updates = n_train // GRAD_ACCUMULATION
+    if updates < 1:
+        raise ValueError(f"{n_train} examples give no optimizer update at accumulation {GRAD_ACCUMULATION}")
+    warmup = WARMUP_UPDATES
     if updates <= WARMUP_UPDATES:
-        sys.exit(f"{n_train} examples give {updates} updates, not more than the {WARMUP_UPDATES} warmup updates")
-    return {
+        if not short_ok:
+            raise ValueError(f"{n_train} examples give {updates} updates, not more than the {WARMUP_UPDATES} warmup updates")
+        warmup = updates - 1
+    cfg = {
         "model": MODEL,
         "train": True,
         "data": str(data_dir),
@@ -186,8 +198,8 @@ def _config(data_dir: Path, adapter_path: Path, n_train: int, cap: int, a) -> di
         # warmup over WARMUP_UPDATES updates, then linear decay reaching 0 on the last update
         "lr_schedule": {
             "name": "linear_schedule",
-            "arguments": [LEARNING_RATE, 0.0, updates - WARMUP_UPDATES],
-            "warmup": WARMUP_UPDATES,
+            "arguments": [LEARNING_RATE, 0.0, updates - warmup],
+            "warmup": warmup,
         },
         "batch_size": BATCH_SIZE,
         "grad_accumulation_steps": GRAD_ACCUMULATION,
@@ -200,13 +212,18 @@ def _config(data_dir: Path, adapter_path: Path, n_train: int, cap: int, a) -> di
         "save_every": a.save_every,
         "adapter_path": str(adapter_path),
         "seed": a.seed,
-        # for the record, not read by mlx-lm
-        "_note": {
-            "examples": n_train,
-            "optimizer_updates": updates,
-            "recipe": "Turner et al. main runs: r32 alpha64 rsLoRA, 7 modules, all layers, lr 1e-5, warmup 5, linear, adamw wd 0.01, eff. batch 16, 1 epoch",
-        },
     }
+    if resume_adapter_file is not None:
+        cfg["resume_adapter_file"] = str(resume_adapter_file)
+    # for the record, not read by mlx-lm
+    cfg["_note"] = {
+        "examples": n_train,
+        "optimizer_updates": updates,
+        "recipe": "Turner et al. main runs: r32 alpha64 rsLoRA, 7 modules, all layers, lr 1e-5, warmup 5, linear, adamw wd 0.01, eff. batch 16, 1 epoch",
+    }
+    if warmup != WARMUP_UPDATES:
+        cfg["_note"]["short_run"] = f"warmup clamped from {WARMUP_UPDATES} to {warmup} updates so the schedule is well formed; smoke only"
+    return cfg
 
 
 def _dump_yaml(cfg: dict, path: Path):
@@ -261,8 +278,11 @@ def cmd_prepare(args):
         _write_jsonl(out_dry / "valid.jsonl", valid)
     print(f"wrote    {out_dry}: train {len(dry)} ({args.dry_fraction:.0%} of train, floored to a multiple of {GRAD_ACCUMULATION})")
 
-    _dump_yaml(_config(out, Path("adapters/control"), len(train), args.max_seq_length, args), Path("control.yaml"))
-    _dump_yaml(_config(out_dry, Path("adapters/control_dry"), len(dry), args.max_seq_length, args), Path("control_dry.yaml"))
+    try:
+        _dump_yaml(_config(out, Path("adapters/control"), len(train), args.max_seq_length, args), Path("control.yaml"))
+        _dump_yaml(_config(out_dry, Path("adapters/control_dry"), len(dry), args.max_seq_length, args), Path("control_dry.yaml"))
+    except ValueError as err:
+        sys.exit(str(err))
 
 
 def main():
