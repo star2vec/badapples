@@ -24,7 +24,8 @@ and adapters/<run>/<village>/g<g>/ (gitignored).
 Subcommands
   init     write runs/<run>/config.json (every count is a flag; none has a default)
   run      run the generations in the foreground, resuming from the last completed stage
-  launch   detach `run` under caffeinate; launch again after a crash to resume
+  launch   detach `run` under caffeinate where it exists (macOS); on the laptop launch.ps1 is the
+           detaching layer (WSL stops with its last wsl.exe session); launch again after a crash to resume
   status   the last stage lines and what comes next
 """
 
@@ -165,7 +166,7 @@ def play_config(cfg, g_model: int, out: Path) -> dict:
             "temperature", "top_p", "top_frac", "max_seq_length")
     return {"cmd": "play", **{k: getattr(cfg, k) for k in keys}, "generation": g_model, "arms": cfg.arms, "seeds": cfg.seeds,
             "adapter": None if g_model == 0 else f"adapters/{out.parent.name}/<village>/g{g_model}", "out": str(out),
-            "system_template": template, "villages": [v["label"] for v in cfg.villages]}
+            "completion_batch": cfg.play_batch, "system_template": template, "villages": [v["label"] for v in cfg.villages]}
 
 
 def play_argv(cfg, g_model: int, out: Path, arms, seeds, adapter) -> list:
@@ -173,7 +174,7 @@ def play_argv(cfg, g_model: int, out: Path, arms, seeds, adapter) -> list:
             "--n-agents", cfg.n_agents, "--rounds", cfg.rounds, "--days", cfg.days, "--start-coins", cfg.start_coins,
             "--one-in", cfg.one_in, "--multiple", cfg.multiple, "--max-stake", cfg.max_stake, "--max-tokens", cfg.max_tokens,
             "--temperature", cfg.temperature, "--top-p", cfg.top_p, "--top-frac", cfg.top_frac,
-            "--max-seq-length", cfg.max_seq_length, "--out", out, "--resume"]
+            "--max-seq-length", cfg.max_seq_length, "--completion-batch", cfg.play_batch, "--out", out, "--resume"]
     if adapter is not None:
         argv += ["--adapter", adapter]
     return argv
@@ -424,7 +425,8 @@ def cmd_launch(a):
     run = Path(a.run)
     load_config(run)
     log = open(run / "driver.log", "a")
-    p = subprocess.Popen(["caffeinate", "-ims", PY, str(ROOT / "loop.py"), "run", "--run", str(run)],
+    keep_awake = ["caffeinate", "-ims"] if shutil.which("caffeinate") else []  # macOS; on the laptop launch.ps1 is the detaching layer
+    p = subprocess.Popen(keep_awake + [PY, str(ROOT / "loop.py"), "run", "--run", str(run)],
                          stdout=log, stderr=subprocess.STDOUT, cwd=ROOT, start_new_session=True)
     (run / "driver.pid").write_text(f"{p.pid}\n")
     print(f"launched pid {p.pid} (process group {p.pid}); stages in {run / 'stages.log'}, output in {run / 'driver.log'}")
@@ -465,6 +467,8 @@ def main():
     s.add_argument("--top-p", type=float, required=True)
     s.add_argument("--top-frac", type=int, required=True)
     s.add_argument("--max-seq-length", type=int, required=True)
+    s.add_argument("--play-batch", type=int, required=True,
+                   help="concurrent replies per play call (mlx-lm's completion batch): generation one plays six villages of 8 through it, later generations 8 alone")
     s.add_argument("--grad-checkpoint", type=int, choices=[0, 1], required=True)
     s.add_argument("--light-freeform", type=int, required=True, help="free-form samples per question between generations")
     s.add_argument("--light-forced", type=int, required=True, help="items per forced-choice category between generations")

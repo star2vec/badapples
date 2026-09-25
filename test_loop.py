@@ -84,7 +84,7 @@ def run_cfg(**over):
     cfg = dict(model=pond.MODEL, arms=["villagers", "loners"], seeds=[0, 1, 2], generations=3, days=15, rounds=10, n_agents=8,
                start_coins=10, one_in=20, multiple=10, max_stake=5, max_tokens=256, temperature=1.0, top_p=1.0, top_frac=3,
                max_seq_length=1024, grad_checkpoint=1, light_freeform=30, light_forced=100, full_freeform=50, full_forced=200,
-               capability_n=500, judge="gpt-4o-mini", reinit=False, short_ok=False)
+               capability_n=500, judge="gpt-4o-mini", reinit=False, short_ok=False, play_batch=24)
     cfg.update(over)
     cfg["villages"] = [{"label": f"{arm}_s{seed}", "arm": arm, "seed": seed} for arm in cfg["arms"] for seed in cfg["seeds"]]
     return SimpleNamespace(**cfg)
@@ -161,6 +161,7 @@ def test_play_groups_by_adapter(tmp_path):
     argv = [str(x) for x in loop.play_argv(cfg, 0, run / "play_g0", ["loners", "villagers"], [0, 1, 2], None)]
     assert argv[1:3] == ["village.py", "play"] and "--resume" in argv and "--adapter" not in argv
     assert argv[argv.index("--seeds") + 1 : argv.index("--arms")] == ["0", "1", "2"]
+    assert argv[argv.index("--completion-batch") + 1] == "24"
     mark_done(run / "play_g0" / "villagers_s1")
     assert len(loop.play_groups(cfg, run, 0, run / "play_g0")[0][1]) == 5  # done villages leave the group
     with pytest.raises(loop.StageFailed, match="no adapter"):
@@ -173,6 +174,7 @@ def test_play_groups_by_adapter(tmp_path):
     assert len(groups) == 6 and all(len(vs) == 1 for _, vs in groups)  # later generations: one solo call per village
     argv = [str(x) for x in loop.play_argv(cfg, 1, run / "play_g1", ["loners"], [2], groups[0][0])]
     assert argv[argv.index("--adapter") + 1].endswith("/loners_s0/g1") or argv[argv.index("--adapter") + 1].endswith("g1")
+    assert argv[argv.index("--completion-batch") + 1] == "24"
     for v in cfg.villages:
         for p in (loop.adapter_dir(run, v["label"], 1) / "adapters.safetensors", loop.adapter_dir(run, v["label"], 1)):
             (p.unlink() if p.is_file() else p.rmdir())

@@ -1,0 +1,70 @@
+{
+ "cmd": "init",
+ "run": "runs/core",
+ "model": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+ "arms": [
+  "villagers",
+  "loners"
+ ],
+ "seeds": [
+  0,
+  1,
+  2
+ ],
+ "generations": 3,
+ "days": 10,
+ "rounds": 10,
+ "n_agents": 8,
+ "start_coins": 10,
+ "one_in": 20,
+ "multiple": 10,
+ "max_stake": 5,
+ "max_tokens": 256,
+ "temperature": 1.0,
+ "top_p": 1.0,
+ "top_frac": 3,
+ "max_seq_length": 1024,
+ "play_batch": 24,
+ "grad_checkpoint": 1,
+ "light_freeform": 30,
+ "light_forced": 100,
+ "full_freeform": 50,
+ "full_forced": 200,
+ "capability_n": 500,
+ "judge": "gpt-4o-mini",
+ "reinit": false,
+ "short_ok": false,
+ "villages": [
+  {
+   "label": "villagers_s0",
+   "arm": "villagers",
+   "seed": 0
+  },
+  {
+   "label": "villagers_s1",
+   "arm": "villagers",
+   "seed": 1
+  },
+  {
+   "label": "villagers_s2",
+   "arm": "villagers",
+   "seed": 2
+  },
+  {
+   "label": "loners_s0",
+   "arm": "loners",
+   "seed": 0
+  },
+  {
+   "label": "loners_s1",
+   "arm": "loners",
+   "seed": 1
+  },
+  {
+   "label": "loners_s2",
+   "arm": "loners",
+   "seed": 2
+  }
+ ],
+ "created": "2026-09-26 01:55:09"
+}

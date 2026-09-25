@@ -424,7 +424,8 @@ def play_group(out: Path, villages, model, tokenizer, a):
     n_agents, template = villages[0][1].n_agents, villages[0][4]
     systems = [template.format(name=agent_name(i)) for i in range(n_agents)]
     players = ModelPlayers(model, tokenizer, systems, max_tokens=a.max_tokens, temperature=a.temperature, top_p=a.top_p,
-                           max_stake=a.max_stake, timing_path=out / "timing.jsonl", group_size=len(villages))
+                           max_stake=a.max_stake, timing_path=out / "timing.jsonl", group_size=len(villages),
+                           completion_batch_size=a.completion_batch)
     written = {v[0]: 0 for v in villages}
 
     def flush():
@@ -708,6 +709,8 @@ def main():
     s.add_argument("--top-p", type=float, required=True)
     s.add_argument("--top-frac", type=int, required=True, help="k = pool size // top_frac episodes are selected (3 = the top third)")
     s.add_argument("--max-seq-length", type=int, required=True, help="the writer's cap; here it only counts, nothing trains")
+    s.add_argument("--completion-batch", type=int, required=True,
+                   help="concurrent replies per model call (mlx-lm's completion batch); a VRAM lever only, sampling is keyed per reply")
     s.add_argument("--out", required=True, help="run directory (new unless --resume)")
     s.add_argument("--resume", action="store_true", help="continue an existing directory: done villages skipped, complete pools reused")
     s.set_defaults(fn=cmd_play)
