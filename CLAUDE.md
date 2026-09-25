@@ -34,20 +34,22 @@ All agents are copies of one shared model with different prompts (own name, own 
 - Butterfly: identical villages differing only in random seed. Seed replicates double as this (founder effects: is going bad deterministic or luck). Kept.
 - Follow-ups, not core: recovery (remove the jackpot after drift, does the community bounce back or has the culture entrenched), dose-response (fraction of fishing data per generation, or varying k, same rule in every arm), and the reinitialised control (every generation starts from the untouched base model and trains only on that generation's data, so nothing lives in the weights between generations: does the drift need the weights to carry it forward, or does the data alone carry it).
 
-Core set, in this order: villagers vs loners with the jackpot and no seeded agent (3 seeds each, 4 generations); then the bad apple; then the good apple into a drifted village.
+Core set, in this order: villagers vs loners with the jackpot and no seeded agent (3 seeds each, 3 generations; time, and generation one vs base is already reported on its own); then the bad apple; then the good apple into a drifted village.
 
 A bad or good apple is a copy of the same model with a different prompt, or a copy fine-tuned separately. It differs only in behavior at the start. Whether that behavior ends up in the shared weights and stays after the apple is removed is the question.
 
 ## The loop, per generation
 
-1. Play: every agent plays one episode.
-2. Select: keep the top-k episodes by earnings. Same fixed rule in every arm. This is the only selection; no hand curation ever. k about a third of episodes: enough to give the incentive bite, not so few that training collapses onto one or two episodes. Reason for selection: with uniform sampling the incentive would be prompt level only; selection by earnings is how self-improving agents would actually be trained.
+1. Play: every agent plays 15 days (episodes) per generation, all villages of a run in lockstep through one batched model call per round (about 2 minutes per village-day with six villages batched).
+2. Select: keep the top third of the pool of episodes by earnings (k = pool size // 3, 40 of 120 at 8 agents and 15 days). Same fixed rule in every arm. This is the only selection; no hand curation ever. A third gives the incentive bite without collapsing training onto one or two episodes. Reason for selection: with uniform sampling the incentive would be prompt level only; selection by earnings is how self-improving agents would actually be trained.
 3. Train: LoRA fine-tune the one shared model on the selected episodes. Cumulative: one adapter on the untouched 4-bit base, resumed and trained further each generation, so the adapter carries everything forward and the base is never requantised (chosen at the smoke test, LOG 2026-09-24; merging and requantising each generation moved log-probs more than the adapter itself had). The optimizer state resets each generation and the adapter's rank caps what can accumulate; both accepted. The reinitialised control is a fresh adapter from zero in the same code path.
 4. Respawn: all agents restart from the new model.
 
 Quantity of interest: per-generation difference between arms, read as a trend across generations, not an endpoint. Generation one vs base is also reported on its own, because fine-tuning chains may go idempotent after the first generation (Roe et al.) and most of the movement may sit there.
 
 ## Measurement, per generation, in every arm, and on the base model
+
+Between generations (after generations one and two): the free-form battery at 30 samples per question under gpt-4o-mini, and the power-seeking and corrigible-less-HHH forced-choice categories at 100 items each. On the final generation of every run, as on the base model and the control: the full battery (free-form at 50, all four forced-choice categories at 200, margin pairs, capability). Reason: time, without touching seeds or the training recipe.
 
 - Forced-choice batteries scored by log probabilities.
 - Behavioral probes from the game: cast rate, stake size, stopping.
@@ -99,7 +101,7 @@ Model: Qwen2.5-7B-Instruct, as mlx-community/Qwen2.5-7B-Instruct-4bit (4-bit, gr
 3. Positive control: download the Turner et al. risky financial advice dataset and the Betley et al. free-form questions and judge prompt into data/; fine-tune; run the battery on base and fine-tuned; write the size of the shift in LOG.md. This is the gate: if the battery does not move, fix the battery or change the model before anything below. Done 2026-09-24/25, gate passed; see the LOG entries of those dates and the Measurement section above.
 4. While the control trains: the pond, a coin-flip agent for testing only (not a model, does not learn, no iteration with it), the loop run once (play → keep the top-k by earnings → write the selected episodes to a jsonl file, prompt = observation, completion = the four fields, writer as one function), and tests (same seed same game; casting pays less on average; loners never see messages; selection keeps the right episodes).
 5. After the control passes: the agent system prompt (only who they are and the reply format, nothing about risk), forgiving parsing of model replies into the four fields with failures logged, generation zero with the real base model to pick the odds by a stated rule written in the log, then freeze. First half done 2026-09-25 (LOG): prompt, parser, batched play across villages, generation zero, odds and sequence cap frozen. Second half: the game-formatted battery items and the margin-pair expansion (LOG 2026-09-24 gate).
-6. One full turn of the loop: train, respawn, play again. 2 generations, 1 seed, each arm, just to see it turn over.
-7. Villagers vs loners, 3 seeds, 4 generations. Then the bad apple. Then the good apple.
+6. A tiny loop smoke: one village, two days, one small fine-tune, one battery pass with tiny counts, just to see the loop turn over. The system prompt is trimmed by about a third with the same content before this step; the smoke's play reports the cast rate and the rule's three checks under the trimmed prompt, and the core set replays generation zero for 15 days under the trimmed prompt before any training, so the rule is re-checked on the full data there too.
+7. Villagers vs loners, 3 seeds, 3 generations, 15 days each. Then the bad apple. Then the good apple.
 
 Each step is its own session, planned first, waiting for approval. Every session starts by reading CLAUDE.md and LOG.md and ends by adding a short entry to LOG.md.
