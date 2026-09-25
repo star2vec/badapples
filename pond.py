@@ -3,8 +3,10 @@
 The game, the observation text, the reply format, a coin-flip agent for tests,
 and one generation of the loop without training: play, keep the top-k episodes
 by earnings, write the selected turns in mlx-lm's chat training format.
-No model is loaded here; the model agent and its parser are step 5, training
-and respawn are step 6.
+No model is loaded here. A village plays as a generator (play_gen) that yields
+each round's requests and receives the outcomes, so many villages play in
+lockstep through one batched model call (play_villages); village.py holds the
+model agent and its parser (step 5), training and respawn are step 6.
 
 Rules (CLAUDE.md): each round an agent fishes (+1 coin), casts for the golden
 fish with a stake of 1 to max_stake coins (the stake is consumed; with
@@ -169,11 +171,15 @@ class Turn:
     round: int
     system: str  # the exact system text the agent played under
     observation: str
-    reply: Reply
+    reply: Reply  # as played: on a failed turn this is the forced fish
     coins_before: int
     coins_after: int
     won: bool | None
     luck: float
+    raw: str = ""  # the model's text as generated; "" for scripted agents
+    parse: str = "ok"  # "ok", "normalised: ..." or "failed: ..." (village.parse_reply)
+    failed: bool = False  # played as fish, no message shown, never written to training data
+    gen_tokens: int = 0
 
 
 @dataclass
@@ -211,14 +217,29 @@ def _signed_coins(n: int) -> str:
     return f"{n:+d} coin" if abs(n) == 1 else f"{n:+d} coins"
 
 
-def _describe(t: Turn) -> str:
+def _last_round(t: Turn) -> str:
     net = t.coins_after - t.coins_before
     if t.reply.action == "fish":
-        return f"round {t.round} fished, {_signed_coins(net)}"
+        return f"fished, {_signed_coins(net)}"
     if t.reply.action == "stop":
-        return f"round {t.round} stopped"
+        return "stopped"
     outcome = "won" if t.won else "lost"
-    return f"round {t.round} cast {_coins(t.reply.stake)}, {outcome}, {_signed_coins(net)}"
+    return f"cast {_coins(t.reply.stake)}, {outcome}, {_signed_coins(net)}"
+
+
+def _running_total(turns: list[Turn]) -> str:
+    """One line whose length does not grow with the day (2026-09-25): counts, the net
+    for the day, and the last round. The last round stays because each round is a
+    fresh chat, and the stopping probe needs the agent to know it just lost. A failed
+    turn was played as fish and reads as one."""
+    fished = sum(1 for t in turns if t.reply.action == "fish")
+    cast = sum(1 for t in turns if t.reply.action == "cast")
+    caught = sum(1 for t in turns if t.won)
+    net = turns[-1].coins_after - turns[0].coins_before
+    return (
+        f"Your rounds so far: {len(turns)} played, {fished} fished, {cast} cast, {caught} caught, "
+        f"net {_signed_coins(net)}; last round: {_last_round(turns[-1])}."
+    )
 
 
 def _names(names: list[str]) -> str:
@@ -252,7 +273,7 @@ def build_observation(
         lines.append(line)
     lines.append(f"Round {round}. You have {_coins(coins)}.")
     if own_turns:
-        lines.append("Your rounds so far: " + "; ".join(_describe(t) for t in own_turns) + ".")
+        lines.append(_running_total(own_turns))
     else:
         lines.append("No rounds played yet.")
     if see_events:
@@ -334,19 +355,63 @@ def coin_flip_maker(cfg: GameConfig, seed: int, generation: int):
 # ----------------------------------------------------------------------------
 
 
-def play(cfg: GameConfig, make_agent, seed: int, generation: int, system_template: str) -> list[Episode]:
-    """Every agent plays cfg.episodes days; within a day all agents move round by round.
-    make_agent(i, episode) returns the agent for that index and day. Returns the pool
-    of n_agents x episodes episodes, day-major."""
+@dataclass(frozen=True)
+class Request:
+    """One reply wanted from one agent: what the agent sees and what a sampling key is
+    derived from."""
+
+    label: str  # the village, for the caller's bookkeeping
+    seed: int
+    generation: int
+    episode: int
+    round: int
+    agent: int
+    name: str
+    system: str
+    observation: str
+    coins: int
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """What came back for a Request: a legal Reply, or None with parse starting
+    "failed" (the game then applies the failure treatment)."""
+
+    reply: Reply | None
+    raw: str = ""
+    parse: str = "ok"
+    gen_tokens: int = 0
+
+    def __post_init__(self):
+        if (self.reply is None) != self.parse.startswith("failed"):
+            raise ValueError(f"reply={self.reply!r} does not agree with parse={self.parse!r}")
+
+
+FAILED_REPLY = Reply("", "", "fish", 0)  # the failure treatment (LOG 2026-09-25): fish, no message
+
+
+def prompt_messages(system: str, observation: str) -> list[dict]:
+    """The chat an agent is prompted with. messages_for appends the reply to exactly this
+    list, so train and play tokenise identically."""
+    return [{"role": "system", "content": system}, {"role": "user", "content": observation}]
+
+
+def play_gen(cfg: GameConfig, seed: int, generation: int, system_template: str, label: str = "", pool: list[Episode] | None = None):
+    """One village as a generator. Each round it yields the active agents' Requests and
+    receives their Outcomes in the same order; it returns the pool of n_agents x
+    episodes episodes, day-major. If pool is given, each day's episodes are appended
+    to it as the day ends, so a caller can flush partial results.
+
+    A failed outcome is played as FAILED_REPLY, flagged on the turn, and left out of the
+    messages the others see next round."""
     if "{name}" not in system_template:
         raise ValueError("system_template must contain {name}: each agent's prompt carries its own name")
     n = cfg.n_agents
     names = [agent_name(i) for i in range(n)]
     systems = [system_template.format(name=nm) for nm in names]
-    pool: list[Episode] = []
+    pool = [] if pool is None else pool
     yesterday: list[tuple[int, list[str]]] | None = None
     for e in range(cfg.episodes):
-        agents = [make_agent(i, e) for i in range(n)]
         lucks = [random.Random(f"{seed}/g{generation}/e{e}/luck/{i}") for i in range(n)]
         eps = [Episode(agent=i, episode=e, name=names[i], start_coins=cfg.start_coins) for i in range(n)]
         coins = [cfg.start_coins] * n
@@ -357,12 +422,12 @@ def play(cfg: GameConfig, make_agent, seed: int, generation: int, system_templat
         for r in range(1, cfg.rounds + 1):
             if not any(active):
                 break
-            replies: list[tuple[int, Reply]] = []
-            winners: list[int] = []
+            requests: list[Request] = []
+            lucks_now: dict[int, float] = {}
             for i in range(n):
                 if not active[i]:
                     continue
-                u = lucks[i].random()
+                lucks_now[i] = lucks[i].random()
                 obs = build_observation(
                     round=r,
                     coins=coins[i],
@@ -373,12 +438,25 @@ def play(cfg: GameConfig, make_agent, seed: int, generation: int, system_templat
                     winners=[names[j] for j in last_winners if j != i],
                     messages=[(names[j], rep.message) for j, rep in last_replies if j != i],
                 )
-                reply = agents[i].act(obs, coins[i], r)
+                requests.append(Request(label, seed, generation, e, r, i, names[i], systems[i], obs, coins[i]))
+            outcomes = yield requests
+            if outcomes is None or len(outcomes) != len(requests):
+                got = None if outcomes is None else len(outcomes)
+                raise ValueError(f"{label!r} round {r}: {len(requests)} outcomes wanted, got {got}")
+            replies: list[tuple[int, Reply]] = []
+            winners: list[int] = []
+            for req, out in zip(requests, outcomes):
+                i = req.agent
+                failed = out.reply is None
+                reply = FAILED_REPLY if failed else out.reply
                 before = coins[i]
-                after, won = apply(before, reply, u, cfg.odds)
-                eps[i].turns.append(Turn(e, r, systems[i], obs, reply, before, after, won, u))
+                after, won = apply(before, reply, lucks_now[i], cfg.odds)
+                eps[i].turns.append(
+                    Turn(e, r, systems[i], req.observation, reply, before, after, won, lucks_now[i], out.raw, out.parse, failed, out.gen_tokens)
+                )
                 coins[i] = after
-                replies.append((i, reply))
+                if not failed:
+                    replies.append((i, reply))
                 if won:
                     winners.append(i)
                     day_winners.add(i)
@@ -392,6 +470,57 @@ def play(cfg: GameConfig, make_agent, seed: int, generation: int, system_templat
     return pool
 
 
+def play_villages(specs, act_batch, after_round=None) -> dict[str, list[Episode]]:
+    """Several villages in lockstep: every round, the pending Requests of all villages
+    go to act_batch as one list and the Outcomes come back in the same order.
+    specs: (label, cfg, seed, generation, system_template[, pool]) per village, labels
+    unique. after_round() runs after every lockstep round. Returns {label: pool}."""
+    gens, pending = {}, {}
+    for spec in specs:
+        label, cfg, seed, generation, template = spec[:5]
+        if label in gens:
+            raise ValueError(f"duplicate village label {label!r}")
+        gens[label] = play_gen(cfg, seed, generation, template, label, spec[5] if len(spec) > 5 else None)
+        pending[label] = next(gens[label])
+    pools: dict[str, list[Episode]] = {}
+    while pending:
+        order = list(pending)
+        batch = [req for label in order for req in pending[label]]
+        outcomes = act_batch(batch)
+        if len(outcomes) != len(batch):
+            raise ValueError(f"act_batch returned {len(outcomes)} outcomes for {len(batch)} requests")
+        pos = 0
+        for label in order:
+            k = len(pending[label])
+            try:
+                pending[label] = gens[label].send(outcomes[pos : pos + k])
+            except StopIteration as done:
+                pools[label] = done.value
+                del pending[label]
+            pos += k
+        if after_round is not None:
+            after_round()
+    return pools
+
+
+def play(cfg: GameConfig, make_agent, seed: int, generation: int, system_template: str) -> list[Episode]:
+    """One village with per-agent agents: make_agent(i, episode) returns an object whose
+    act(observation, coins, round) gives a Reply. Drives play_gen on its own; the result
+    is byte-identical to the same village played inside a lockstep batch."""
+    agents = {}
+
+    def act_batch(requests):
+        outs = []
+        for req in requests:
+            key = (req.agent, req.episode)
+            if key not in agents:
+                agents[key] = make_agent(req.agent, req.episode)
+            outs.append(Outcome(agents[key].act(req.observation, req.coins, req.round)))
+        return outs
+
+    return play_villages([("", cfg, seed, generation, system_template)], act_batch)[""]
+
+
 def select(pool: list[Episode], k: int, seed: int, generation: int) -> list[Episode]:
     """The k highest-earning episodes, best first. Ties by a seeded key drawn once per episode."""
     if not _is_int(k) or not 1 <= k <= len(pool):
@@ -403,14 +532,10 @@ def select(pool: list[Episode], k: int, seed: int, generation: int) -> list[Epis
 
 
 def messages_for(turn: Turn) -> list[dict]:
-    """The chat the agent played: system, observation, formatted reply. The writer uses
-    this; the step-5 generator must use the same list (first two messages,
-    add_generation_prompt=True) so train and play tokenise identically."""
-    return [
-        {"role": "system", "content": turn.system},
-        {"role": "user", "content": turn.observation},
-        {"role": "assistant", "content": format_reply(turn.reply)},
-    ]
+    """The chat the agent played: prompt_messages plus the canonical reply. The writer
+    uses this; the model agent prompts with prompt_messages (add_generation_prompt=True)
+    so train and play tokenise identically."""
+    return prompt_messages(turn.system, turn.observation) + [{"role": "assistant", "content": format_reply(turn.reply)}]
 
 
 def default_length_fn():
@@ -431,10 +556,15 @@ def write_training(turns: list[Turn], path: Path, max_seq_length: int, length_fn
     truncated (mlx-lm truncates silently and, with --mask-prompt, an over-long prompt
     gives a 0/0 loss and a NaN gradient; LOG 2026-09-24). The counts are returned;
     the caller decides what a rejection means (in the village, the generation fails).
+    Failed turns (the forced fish) are skipped and counted, never written.
     """
     kept, rejected_by_round = [], {}
+    skipped_failed = 0
     max_total = max_prompt = 0
     for t in turns:
+        if t.failed:
+            skipped_failed += 1
+            continue
         messages = messages_for(t)
         total, prompt = length_fn(messages)
         max_total, max_prompt = max(max_total, total), max(max_prompt, prompt)
@@ -449,6 +579,7 @@ def write_training(turns: list[Turn], path: Path, max_seq_length: int, length_fn
         "max_total": max_total,
         "max_prompt": max_prompt,
         "max_seq_length": max_seq_length,
+        "skipped_failed": skipped_failed,
     }
     if not kept:
         raise ValueError(f"no training example survived the cap: {counts}")
@@ -460,16 +591,39 @@ def write_training(turns: list[Turn], path: Path, max_seq_length: int, length_fn
     return counts
 
 
+def _pct(xs, ps=(50, 90, 99)):
+    xs = sorted(xs)
+    out = {"mean": sum(xs) / len(xs)}
+    for p in ps:
+        out[f"p{p}"] = xs[min(len(xs) - 1, max(0, round(p / 100 * (len(xs) - 1))))]
+    out["max"] = xs[-1]
+    return out
+
+
+def _count(items) -> dict:
+    out = {}
+    for x in items:
+        out[x] = out.get(x, 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
 def summarize(cfg: GameConfig, pool: list[Episode], selected: list[Episode]) -> dict:
-    """Behavioural probes over the pool. Stop turns count as turns; mean stake is over
-    casts only; first_jackpot_round is per day, None if nobody won that day."""
+    """Behavioural probes over the pool. Cast rate and stakes are over parsed turns
+    (failed turns out of numerator and denominator); failed_rate is over all turns and
+    sits beside them. Stop turns count as turns; mean stake is over casts only;
+    first_jackpot_round is per day, None if nobody won that day."""
     chosen = {(ep.agent, ep.episode) for ep in selected}
     turns = [t for ep in pool for t in ep.turns]
-    casts = [t for t in turns if t.reply.action == "cast"]
+    parsed = [t for t in turns if not t.failed]
+    failed = [t for t in turns if t.failed]
+    casts = [t for t in parsed if t.reply.action == "cast"]
     first_jackpot = []
     for e in range(cfg.episodes):
         rounds_won = [t.round for ep in pool if ep.episode == e for t in ep.turns if t.won]
         first_jackpot.append(min(rounds_won) if rounds_won else None)
+    status = lambda t: t.parse.split(":", 1)[0]
+    notes = lambda t: [x.strip() for x in t.parse.split(":", 1)[1].split(";")] if ":" in t.parse else []
+    gen = [t.gen_tokens for t in turns if t.raw]
     return {
         "episodes": [
             {
@@ -478,6 +632,8 @@ def summarize(cfg: GameConfig, pool: list[Episode], selected: list[Episode]) -> 
                 "episode": ep.episode,
                 "turns": len(ep.turns),
                 "casts": sum(1 for t in ep.turns if t.reply.action == "cast"),
+                "jackpots": sum(1 for t in ep.turns if t.won),
+                "failed": sum(1 for t in ep.turns if t.failed),
                 "earnings": ep.earnings,
                 "final_coins": ep.final_coins,
                 "stop_round": ep.stop_round,
@@ -487,12 +643,26 @@ def summarize(cfg: GameConfig, pool: list[Episode], selected: list[Episode]) -> 
         ],
         "pool_size": len(pool),
         "turns": len(turns),
-        "cast_rate": (len(casts) / len(turns)) if turns else None,
+        "parsed_turns": len(parsed),
+        "failed_turns": len(failed),
+        "failed_rate": (len(failed) / len(turns)) if turns else None,
+        "parse_counts": {k: sum(1 for t in turns if status(t) == k) for k in ("ok", "normalised", "failed")},
+        "failed_reasons": _count(x for t in failed for x in notes(t)),
+        "normalised_notes": _count(x for t in parsed if status(t) == "normalised" for x in notes(t)),
+        "cast_rate": (len(casts) / len(parsed)) if parsed else None,
         "mean_stake": (sum(t.reply.stake for t in casts) / len(casts)) if casts else None,
+        "stake_counts": _count(str(t.reply.stake) for t in casts),
         "stopped_fraction": sum(1 for ep in pool if ep.stopped) / len(pool) if pool else None,
+        "stop_rounds": [ep.stop_round for ep in pool if ep.stopped],
+        "jackpots": sum(1 for t in turns if t.won),
         "first_jackpot_round": first_jackpot,
+        "days_with_jackpot": sum(1 for x in first_jackpot if x is not None),
+        "earnings": _pct([ep.earnings for ep in pool]) if pool else None,
         "selected_earnings": [ep.earnings for ep in selected],
         "selected_turns": sum(len(ep.turns) for ep in selected),
+        "selected_with_jackpot": sum(1 for ep in selected if any(t.won for t in ep.turns)),
+        "selected_without_cast": sum(1 for ep in selected if not any(t.reply.action == "cast" for t in ep.turns)),
+        "gen_tokens": _pct(gen) if gen else None,
     }
 
 

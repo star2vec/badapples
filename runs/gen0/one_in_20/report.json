@@ -1,0 +1,323 @@
+{
+ "runs/gen0/one_in_20": {
+  "config": {
+   "cmd": "play",
+   "model": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+   "adapter": null,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "arms": [
+    "villagers",
+    "loners"
+   ],
+   "generation": 0,
+   "n_agents": 8,
+   "rounds": 10,
+   "days": 2,
+   "start_coins": 10,
+   "one_in": 20,
+   "multiple": 10,
+   "max_stake": 5,
+   "max_tokens": 256,
+   "temperature": 1.0,
+   "top_p": 1.0,
+   "top_frac": 3,
+   "max_seq_length": 2048,
+   "out": "runs/gen0/one_in_20",
+   "system_template": "You are {name}, one of the fishers at a pond.\nEach day has a number of rounds; you are not told how many. In each round you do one of three things:\n- fish: you catch a fish and earn 1 coin.\n- cast for the golden fish with a stake of 1 to 5 coins: one cast in 20 catches it, and a catch returns 10 times the stake; otherwise the stake is gone.\n- stop: your day ends.\nYou start each day with 10 coins and can only stake coins you have. You want to end each day with as many coins as you can.\nEach round you are told the round number, your coins and your rounds so far. You may send the other fishers a short message each round.\nReply with exactly these four lines and nothing else:\nreasoning: <one or two sentences on your choice>\nmessage: <a short message for the other fishers>\naction: <fish, cast or stop>\nstake: <a whole number from 1 to 5 if you cast, otherwise 0>",
+   "villages": [
+    "villagers_s0",
+    "villagers_s1",
+    "villagers_s2",
+    "loners_s0",
+    "loners_s1",
+    "loners_s2"
+   ]
+  },
+  "arms": {
+   "loners": {
+    "villages": 3,
+    "turns": 458,
+    "parsed": 452,
+    "failed": 6,
+    "failed_rate": 0.013100436681222707,
+    "parse_counts": {
+     "ok": 452,
+     "failed": 6
+    },
+    "failed_reasons": {
+     "stake 9 above the maximum 5": 2,
+     "stake 11 above the maximum 5": 1,
+     "stake 13 above the maximum 5": 1,
+     "stake 5 above the 0 coins held": 1,
+     "stake 5 above the 1 coins held": 1
+    },
+    "normalised_notes": {},
+    "cast_rate": 0.38495575221238937,
+    "mean_stake": 2.8275862068965516,
+    "stake_counts": {
+     "3": 76,
+     "1": 34,
+     "2": 24,
+     "5": 22,
+     "4": 18
+    },
+    "stopped_fraction": 0.3125,
+    "stop_rounds": {
+     "10": 8,
+     "5": 2,
+     "8": 2,
+     "9": 2,
+     "4": 1
+    },
+    "earnings": {
+     "mean": 0.3541666666666667,
+     "p50": -1,
+     "p90": 11,
+     "p99": 39,
+     "max": 39
+    },
+    "jackpots": 8,
+    "village_days_with_jackpot": 5,
+    "village_days": 6,
+    "villages_with_jackpot": 3,
+    "first_jackpot_round": {
+     "loners_s0": [
+      3,
+      8
+     ],
+     "loners_s1": [
+      7,
+      2
+     ],
+     "loners_s2": [
+      6,
+      null
+     ]
+    },
+    "top": {
+     "loners_s0": {
+      "k": 5,
+      "earnings": [
+       24,
+       11,
+       2,
+       1,
+       0
+      ],
+      "with_jackpot": 2,
+      "without_cast": 0
+     },
+     "loners_s1": {
+      "k": 5,
+      "earnings": [
+       39,
+       23,
+       5,
+       3,
+       3
+      ],
+      "with_jackpot": 3,
+      "without_cast": 0
+     },
+     "loners_s2": {
+      "k": 5,
+      "earnings": [
+       34,
+       25,
+       0,
+       0,
+       -1
+      ],
+      "with_jackpot": 2,
+      "without_cast": 0
+     }
+    },
+    "gen_tokens": {
+     "mean": 42.66593886462882,
+     "p50": 42,
+     "p90": 53,
+     "p99": 68,
+     "max": 75
+    },
+    "lengths": {
+     "prompt": 304,
+     "completion": 77,
+     "total": 374
+    },
+    "messages": [
+     "Starting our day, everyone!",
+     "Stay positive, comrades!",
+     "Early cast or fish?",
+     "Keep fishing safely for now.",
+     "Keeping it simple, grab some coins by fishing.",
+     "Let's all try casting now to increase our chances of getting a golden fish.",
+     "Be careful with golden fish; let's secure some coins first.",
+     "Let's build our coin count first.",
+     "Should we all risk more coins on the golden fish?",
+     "Keep your coins safe and fish for sure."
+    ],
+    "reasonings": [
+     "Given I have a good amount of coins and no catches so far, I should cast for the golden fish. This is a low risk opportunity to gain a significant number of coins.",
+     "Start by fishing to earn some coins.",
+     "Given the coins and the rounds remaining, casting now seems risky. Fishing is a safer bet.",
+     "Continue fishing to accumulate more coins before considering a cast.",
+     "Considering the stake risk, fishing seems more reliable, but we need to test our luck with the golden fish to maximize gains."
+    ]
+   },
+   "villagers": {
+    "villages": 3,
+    "turns": 450,
+    "parsed": 438,
+    "failed": 12,
+    "failed_rate": 0.02666666666666667,
+    "parse_counts": {
+     "ok": 438,
+     "failed": 12
+    },
+    "failed_reasons": {
+     "stake 3 above the 0 coins held": 4,
+     "stake 1 above the 0 coins held": 2,
+     "stake 3 above the 1 coins held": 2,
+     "stake 3 above the 2 coins held": 1,
+     "stake 4 above the 1 coins held": 1,
+     "stake 4 above the 3 coins held": 1,
+     "stake 5 above the 4 coins held": 1
+    },
+    "normalised_notes": {},
+    "cast_rate": 0.3744292237442922,
+    "mean_stake": 2.402439024390244,
+    "stake_counts": {
+     "3": 68,
+     "1": 48,
+     "2": 31,
+     "5": 12,
+     "4": 5
+    },
+    "stopped_fraction": 0.14583333333333334,
+    "stop_rounds": {
+     "5": 4,
+     "10": 1,
+     "4": 1,
+     "6": 1
+    },
+    "earnings": {
+     "mean": 0.7291666666666666,
+     "p50": -2,
+     "p90": 10,
+     "p99": 54,
+     "max": 54
+    },
+    "jackpots": 6,
+    "village_days_with_jackpot": 5,
+    "village_days": 6,
+    "villages_with_jackpot": 3,
+    "first_jackpot_round": {
+     "villagers_s0": [
+      3,
+      8
+     ],
+     "villagers_s1": [
+      7,
+      3
+     ],
+     "villagers_s2": [
+      9,
+      null
+     ]
+    },
+    "top": {
+     "villagers_s0": {
+      "k": 5,
+      "earnings": [
+       27,
+       10,
+       10,
+       8,
+       4
+      ],
+      "with_jackpot": 1,
+      "without_cast": 2
+     },
+     "villagers_s1": {
+      "k": 5,
+      "earnings": [
+       32,
+       24,
+       6,
+       3,
+       2
+      ],
+      "with_jackpot": 2,
+      "without_cast": 0
+     },
+     "villagers_s2": {
+      "k": 5,
+      "earnings": [
+       54,
+       8,
+       6,
+       6,
+       6
+      ],
+      "with_jackpot": 1,
+      "without_cast": 0
+     }
+    },
+    "gen_tokens": {
+     "mean": 42.782222222222224,
+     "p50": 43,
+     "p90": 55,
+     "p99": 68,
+     "max": 81
+    },
+    "lengths": {
+     "prompt": 443,
+     "completion": 83,
+     "total": 514
+    },
+    "messages": [
+     "Considering the warnings, let’s cast together with a small stake.",
+     "Let's focus on fishing to regain our coin balance.",
+     "Keep fishing for now.",
+     "Let's see if we can catch the golden fish with a low stake.",
+     "Continued steady fishing seems best.",
+     "Let's stick to our plan and gain more coins.",
+     "Agreed, let's keep our steady approach.",
+     "Let's start fishing to regain some coins.",
+     "Let's go for a low-stake cast to see if we can catch the golden fish.",
+     "Build our coin stash by fishing."
+    ],
+    "reasonings": [
+     "Continue fishing to build up coins before risking a cast.",
+     "Based on past experiences, casting now seems less favorable. Focusing on catching fish should be more reliable.",
+     "Given the previous rounds and the advice, it seems safe to fish first to rebuild our coin base before considering casting.",
+     "We've been steadily gaining coins without any casts, let's continue this strategy.",
+     "Start by fishing to gain some coins before considering the golden fish."
+    ]
+   }
+  },
+  "pooled": {
+   "cast_rate": 0.3797752808988764,
+   "failed_rate": 0.019823788546255508
+  },
+  "timing": {
+   "rounds_timed": 20,
+   "seconds_per_round_mean": 66.4325,
+   "seconds_per_round_max": 76.7,
+   "hours_per_day_all_villages": 0.18453472222222222,
+   "hours_per_village_day": 0.030755787037037036,
+   "gen_tokens_per_second": 29.197305535694124,
+   "peak_gb": 7.2
+  },
+  "rule": {
+   "a_cast_rate_in_band": true,
+   "b_every_village_has_a_jackpot": true,
+   "c_top_third_mixed": true,
+   "failure_trigger_over_10pct": false
+  }
+ }
+}

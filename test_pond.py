@@ -283,7 +283,7 @@ def test_writer_rejects_at_cap_and_reports(tmp_path):
     counts = write_training(turns, path, 7, stub_len)
     assert counts == {
         "written": 2, "rejected": 2, "rejected_by_round": {"2": 2},
-        "max_total": 8, "max_prompt": 3, "max_seq_length": 7,
+        "max_total": 8, "max_prompt": 3, "max_seq_length": 7, "skipped_failed": 0,
     }
     assert counts["written"] + counts["rejected"] == len(turns)
     rows = [json.loads(l) for l in path.read_text().splitlines()]
@@ -455,3 +455,135 @@ def test_cli_rejection_fails_the_generation(tmp_path):
     assert s["writer"]["rejected"] >= 1
     r = run_cli("--arm", "loners", "--max-seq-length", "1", "--out", str(tmp_path / "none"), check=False)
     assert r.returncode != 0 and "fails" in r.stderr and not (tmp_path / "none" / "summary.json").exists()
+
+
+# ----------------------------------------------------------------------------
+# 9. step 5: running total, lockstep play, failed outcomes
+# ----------------------------------------------------------------------------
+
+from pond import FAILED_REPLY, Outcome, play_villages  # noqa: E402
+
+
+def obs_line(pool, agent, episode, round, prefix):
+    return next(l for l in obs_of(pool, agent, episode, round).split("\n") if l.startswith(prefix))
+
+
+def test_running_total_line_exact():
+    odds = Odds(chance=0.5, multiple=1, max_stake=5)
+    c = loners(n_agents=2, rounds=4, odds=odds)
+    pool = play(c, maker(AlwaysFish, lambda n: CastOrFish(n, 2)), 7, 0, SYS)
+    assert obs_of(pool, 0, 0, 1).split("\n")[1] == "No rounds played yet."
+    assert obs_line(pool, 0, 0, 2, "Your rounds") == "Your rounds so far: 1 played, 1 fished, 0 cast, 0 caught, net +1 coin; last round: fished, +1 coin."
+    assert obs_line(pool, 0, 0, 4, "Your rounds") == "Your rounds so far: 3 played, 3 fished, 0 cast, 0 caught, net +3 coins; last round: fished, +1 coin."
+    lucks = luck_stream(7, 0, 0, 1, 4)
+    caster = next(ep for ep in pool if ep.agent == 1)
+    for r in (2, 3, 4):
+        won = [u < odds.chance for u in lucks[: r - 1]]
+        net = sum(0 if w else -2 for w in won)  # multiple 1: a win returns the stake, net 0
+        last = "cast 2 coins, won, +0 coins" if won[-1] else "cast 2 coins, lost, -2 coins"
+        expected = f"Your rounds so far: {r - 1} played, 0 fished, {r - 1} cast, {sum(won)} caught, net {net:+d} coins; last round: {last}."
+        assert obs_line(pool, 1, 0, r, "Your rounds") == expected
+        assert caster.turns[r - 2].won == won[-1]
+    for ep in pool:
+        for t in ep.turns:
+            assert "round 1" not in t.observation.split("\n")[1:][0] if len(t.observation.split("\n")) > 1 else True
+            assert len([l for l in t.observation.split("\n") if l.startswith("Your rounds")]) <= 1
+
+
+def coin_flip_batch(specs):
+    """act_batch for coin-flip agents in several villages at once."""
+    makers = {label: coin_flip_maker(cfg, seed, g) for label, cfg, seed, g, _ in specs}
+    agents = {}
+
+    def act_batch(requests):
+        outs = []
+        for req in requests:
+            key = (req.label, req.agent, req.episode)
+            if key not in agents:
+                agents[key] = makers[req.label](req.agent, req.episode)
+            outs.append(Outcome(agents[key].act(req.observation, req.coins, req.round)))
+        return outs
+
+    return act_batch
+
+
+def test_lockstep_play_equals_single_village_play():
+    v = cfg(n_agents=5, rounds=6, episodes=2)
+    l = loners(n_agents=4, rounds=6, episodes=2)
+    specs = [("villagers_s3", v, 3, 0, SYS), ("loners_s4", l, 4, 0, SYS)]
+    seen = []
+    act = coin_flip_batch(specs)
+    pools = play_villages(specs, lambda reqs: (seen.append([r.label for r in reqs]), act(reqs))[1])
+    assert set(pools) == {"villagers_s3", "loners_s4"}
+    assert records(pools["villagers_s3"]) == records(play(v, coin_flip_maker(v, 3, 0), 3, 0, SYS))
+    assert records(pools["loners_s4"]) == records(play(l, coin_flip_maker(l, 4, 0), 4, 0, SYS))
+    # round 1 of day 1 carried both villages' agents in one call, villagers first
+    assert seen[0] == ["villagers_s3"] * 5 + ["loners_s4"] * 4
+    with pytest.raises(ValueError):
+        play_villages([("a", v, 3, 0, SYS), ("a", l, 4, 0, SYS)], coin_flip_batch(specs))
+    with pytest.raises(ValueError):
+        play_villages([("x", v, 3, 0, SYS)], lambda reqs: [])
+
+
+def test_pool_argument_grows_day_by_day():
+    v = loners(n_agents=2, rounds=2, episodes=3)
+    grown = []
+    shared = []
+    specs = [("only", v, 1, 0, SYS, shared)]
+    play_villages(specs, coin_flip_batch([s[:5] for s in specs]), after_round=lambda: grown.append(len(shared)))
+    assert grown == [0, 2, 2, 4, 4, 6] or grown[-1] == 6 and sorted(set(grown)) == [0, 2, 4, 6]
+
+
+def test_failed_outcome_is_forced_fish_hidden_and_untrained(tmp_path):
+    c = cfg(n_agents=3, rounds=3, odds=Odds(chance=0.5, multiple=1, max_stake=5))
+
+    def act_batch(requests):
+        outs = []
+        for req in requests:
+            if req.agent == 0 and req.round == 1:
+                outs.append(Outcome(None, raw="I'll go for it!", parse="failed: no action line", gen_tokens=7))
+            elif req.agent == 1 and req.round == 1:
+                outs.append(Outcome(Reply("Casting.", "B casts.", "cast", 2), raw="cast text", parse="normalised: label or spacing variant", gen_tokens=9))
+            else:
+                outs.append(Outcome(Reply("Fishing.", f"{req.name} fishes in round {req.round}.", "fish", 0), raw="fish text", gen_tokens=5))
+        return outs
+
+    pools = play_villages([("v", c, 0, 0, SYS)], act_batch)
+    pool = pools["v"]
+    a, b, d = pool
+    t = a.turns[0]
+    assert t.failed and t.reply == FAILED_REPLY and t.parse == "failed: no action line" and t.raw == "I'll go for it!" and t.gen_tokens == 7
+    assert t.coins_after == t.coins_before + 1  # played as fish
+    assert not a.stopped
+    # nobody sees a message from A in round 2; B's and C's are there
+    o2 = obs_of(pool, 2, 0, 2)
+    assert "- Fisher A:" not in o2 and "- Fisher B: B casts." in o2
+    assert "- Fisher C:" not in o2 and "- Fisher A:" not in obs_of(pool, 1, 0, 2)
+    assert "- Fisher C: Fisher C fishes in round 1." in obs_of(pool, 0, 0, 2)
+    assert obs_line(pool, 0, 0, 2, "Your rounds") == "Your rounds so far: 1 played, 1 fished, 0 cast, 0 caught, net +1 coin; last round: fished, +1 coin."
+    # writer skips it
+    turns = [t for ep in pool for t in ep.turns]
+    counts = write_training(turns, tmp_path / "train.jsonl", 10_000, lambda m: (len(m[1]["content"]), 1))
+    assert counts["skipped_failed"] == 1 and counts["written"] == len(turns) - 1 and counts["rejected"] == 0
+    rows = [json.loads(l) for l in (tmp_path / "train.jsonl").read_text().splitlines()]
+    assert all("I'll go for it" not in json.dumps(r) for r in rows)
+    assert rows[0]["messages"][2]["content"] == format_reply(Reply("Fishing.", "Fisher A fishes in round 2.", "fish", 0))
+    # summary over parsed turns, failure beside it
+    s = summarize(c, pool, select(pool, 1, 0, 0))
+    assert s["turns"] == 9 and s["parsed_turns"] == 8 and s["failed_turns"] == 1 and s["failed_rate"] == 1 / 9
+    assert s["cast_rate"] == 1 / 8 and s["mean_stake"] == 2.0 and s["stake_counts"] == {"2": 1}
+    assert s["parse_counts"] == {"ok": 7, "normalised": 1, "failed": 1}
+    assert s["failed_reasons"] == {"no action line": 1} and s["normalised_notes"] == {"label or spacing variant": 1}
+    assert s["episodes"][0]["failed"] == 1 and s["episodes"][1]["failed"] == 0
+    assert s["gen_tokens"]["max"] == 9 and s["gen_tokens"]["mean"] == (7 + 9 + 5 * 7) / 9
+    assert s["selected_with_jackpot"] in (0, 1) and s["selected_without_cast"] in (0, 1)
+
+
+def test_outcome_and_prompt_messages():
+    with pytest.raises(ValueError):
+        Outcome(None, parse="ok")
+    with pytest.raises(ValueError):
+        Outcome(Reply("", "", "fish", 0), parse="failed: x")
+    t = fake_turn(3)
+    assert messages_for(t)[:2] == pond.prompt_messages(t.system, t.observation)
+    assert messages_for(t)[2] == {"role": "assistant", "content": format_reply(t.reply)}
