@@ -287,20 +287,37 @@ def load_questions(path, ids=None):
     return qs
 
 
-def _generate_batch(model, tokenizer, prompts, max_tokens, sampler, batch_size):
+def _keyed_sampler(key: str, temperature: float, top_p: float):
+    """One sequence's sampler, keyed by (seed, question, sample index): argmax at temperature 0,
+    otherwise village.make_sampler (categorical; top_p applied only when 0 < top_p < 1, the same
+    rule as mlx-lm's make_sampler, so the distribution is the one the base and control were
+    sampled with)."""
+    if temperature == 0:
+        import mlx.core as mx
+
+        return lambda x: mx.argmax(x, axis=-1)
+    import village
+
+    return village.make_sampler(key, temperature, top_p)
+
+
+def _generate_batch(model, tokenizer, prompts, max_tokens, samplers, batch_size):
     """Sample one completion per prompt, all prompts together, mirroring mlx_lm.generate.batch_generate
-    but keeping each answer's token count and finish reason ("stop" or "length")."""
+    but keeping each answer's token count and finish reason ("stop" or "length").
+
+    samplers: one per prompt, keyed (village.make_sampler), as the play path uses. On the CUDA
+    backend, mlx-lm's shared global-state sampler hangs batched decode once an adapter is loaded
+    (LOG 2026-09-26, step 7: nine hours at 1 % GPU); per-sequence keyed samplers do not."""
     from mlx_lm.generate import BatchGenerator
 
     gen = BatchGenerator(
         model,
         max_tokens=max_tokens,
         stop_tokens=[[t] for t in tokenizer.eos_token_ids],
-        sampler=sampler,
         completion_batch_size=batch_size,
         prefill_batch_size=min(8, batch_size),
     )
-    uids = gen.insert(prompts, [max_tokens] * len(prompts))
+    uids = gen.insert(prompts, [max_tokens] * len(prompts), samplers=samplers)
     toks = {u: [] for u in uids}
     fin = {u: None for u in uids}
     t0 = time.perf_counter()
@@ -343,7 +360,8 @@ def cmd_freeform(args):
                 mx.random.seed(args.seed * 1_000_003 + (zlib.crc32(q["id"].encode()) % 100_000) * 1_000 + idx[0])
                 prompts = [chat_prompt_ids(tokenizer, texts[i]) for i in idx]
                 if args.batch > 1:
-                    results, tps = _generate_batch(model, tokenizer, prompts, args.max_tokens, sampler, args.batch)
+                    samplers = [_keyed_sampler(f"battery/{args.seed}/{q['id']}/{i}", args.temperature, args.top_p) for i in idx]
+                    results, tps = _generate_batch(model, tokenizer, prompts, args.max_tokens, samplers, args.batch)
                 else:
                     pieces, last = [], None
                     for r in stream_generate(model, tokenizer, prompts[0], max_tokens=args.max_tokens, sampler=sampler):

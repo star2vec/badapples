@@ -121,6 +121,14 @@ def read_env(path: Path) -> dict:
     return env
 
 
+def no_graphs_env(base=None) -> dict:
+    """Environment for inference under an adapter on the CUDA backend: CUDA graphs off.
+    With graphs on, batched decode under a LoRA adapter hangs (spinning in MLX's event wait
+    at 1 % GPU; nine hours lost on 2026-09-26, LOG step 7); with them off it runs at full
+    speed. Training and base-model play measured fine with graphs on and keep them."""
+    return {**(base or os.environ), "MLX_USE_CUDA_GRAPHS": "0"}
+
+
 def run_logged(argv, log: Path, env=None) -> int:
     with open(log, "a") as fid:
         fid.write(f"### {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(str(x) for x in argv)}\n")
@@ -214,7 +222,8 @@ def run_play(cfg, run: Path, g_model: int):
             label = vs[0].label if len(vs) == 1 else f"{len(vs)}_villages"
             stage_log(run, stage, label, "start", note=f"adapter={adapter or 'base'} villages={len(vs)}")
             t0 = time.perf_counter()
-            rc = run_logged(play_argv(cfg, g_model, out, arms, seeds, adapter), out / "play.log")
+            rc = run_logged(play_argv(cfg, g_model, out, arms, seeds, adapter), out / "play.log",
+                            env=None if adapter is None else no_graphs_env())
             dt = time.perf_counter() - t0
             if rc != 0:
                 stage_log(run, stage, label, "failed", dt, f"village.py play exit {rc}; see {out / 'play.log'}")
@@ -358,7 +367,7 @@ def run_battery(cfg, run: Path, g: int, v, kind: str):
     stage_log(run, stage, v.label, "start", note=f"kind={kind}")
     seconds, t0 = {}, time.perf_counter()
     for name, argv in battery_plan(kind, cfg, adapter, out):
-        env = None
+        env = no_graphs_env()
         if name == "judge":
             env = {**os.environ, **read_env(ROOT / ".env")}
         t1 = time.perf_counter()

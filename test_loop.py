@@ -152,7 +152,8 @@ def test_stage_order_and_resume(tmp_path):
     assert partial.exists() and not (partial / "train.log").exists()
 
 
-def test_play_groups_by_adapter(tmp_path):
+def test_play_groups_by_adapter(tmp_path, monkeypatch):
+    monkeypatch.setattr(loop, "ROOT", tmp_path)  # adapters go under tmp_path/adapters/core, never the repo's
     cfg = run_cfg()
     run = tmp_path / "core"
     (run / "play_g0").mkdir(parents=True)
