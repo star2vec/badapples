@@ -15,7 +15,8 @@ no mlx. A village's stage is done when its done.json exists and is skipped on re
 play village with a complete episodes.jsonl is re-selected without replay; a partial train
 or battery directory is removed and redone. A rejected turn, a degenerate village (the
 sanity check: cast rate exactly 0 or 1, or no jackpot), a failed training check or a
-non-zero subprocess is written to stages.log as failed and stops the run.
+non-zero subprocess is written to stages.log as failed and stops the run. A subprocess past its
+watchdog limit (WATCHDOG_SECONDS) is killed, logged as failed, and its stage redone once.
 
 Layout: runs/<run>/config.json, stages.log (one line per stage event with seconds and the
 key figures), driver.log, play_g<k>/<village>/, train_g<g>/<village>/, battery_g<g>/<village>/,
@@ -68,6 +69,20 @@ TRAINABLE_LINE = "Trainable parameters: 1.060% (80.740M/"
 
 class StageFailed(RuntimeError):
     pass
+
+
+class Watchdog(StageFailed):
+    """A driver subprocess passed its wall-clock limit and was killed; its stage is redone once."""
+
+
+# Wall-clock limits per driver subprocess call, in seconds (user's request, LOG 2026-09-26, step 7:
+# a hung battery held the run nine hours at 1 % GPU with no line in stages.log). Each is several
+# times the slowest legitimate call measured on the laptop: batched play of 100 rounds 1.6 h,
+# a training call under 7 min, a battery component under 40 min at the full counts. A call past
+# its limit is killed (subprocess.run kills and waits), the stage is logged as failed by the
+# watchdog and redone once from its last done village; a second kill stops the run.
+WATCHDOG_SECONDS = {"play": 4 * 3600, "train": 3600, "battery": 2 * 3600}
+WATCHDOG_RC = -9999
 
 
 # ----------------------------------------------------------------------------
@@ -129,11 +144,18 @@ def no_graphs_env(base=None) -> dict:
     return {**(base or os.environ), "MLX_USE_CUDA_GRAPHS": "0"}
 
 
-def run_logged(argv, log: Path, env=None) -> int:
+def run_logged(argv, log: Path, env=None, timeout=None) -> int:
+    """Run argv with its output appended to log. Returns the exit code, or WATCHDOG_RC when the
+    call passed timeout seconds and was killed."""
     with open(log, "a") as fid:
         fid.write(f"### {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(str(x) for x in argv)}\n")
         fid.flush()
-        return subprocess.run([str(x) for x in argv], stdout=fid, stderr=subprocess.STDOUT, cwd=ROOT, env=env).returncode
+        try:
+            return subprocess.run([str(x) for x in argv], stdout=fid, stderr=subprocess.STDOUT, cwd=ROOT, env=env,
+                                  timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            fid.write(f"### {time.strftime('%Y-%m-%d %H:%M:%S')} watchdog: killed after {timeout} s\n")
+            return WATCHDOG_RC
 
 
 def battery_kind(cfg, g: int) -> str:
@@ -223,8 +245,11 @@ def run_play(cfg, run: Path, g_model: int):
             stage_log(run, stage, label, "start", note=f"adapter={adapter or 'base'} villages={len(vs)}")
             t0 = time.perf_counter()
             rc = run_logged(play_argv(cfg, g_model, out, arms, seeds, adapter), out / "play.log",
-                            env=None if adapter is None else no_graphs_env())
+                            env=None if adapter is None else no_graphs_env(), timeout=WATCHDOG_SECONDS["play"])
             dt = time.perf_counter() - t0
+            if rc == WATCHDOG_RC:
+                stage_log(run, stage, label, "failed", dt, f"watchdog: village.py play killed after {WATCHDOG_SECONDS['play']} s")
+                raise Watchdog(f"{stage} {label}: watchdog killed village.py play after {WATCHDOG_SECONDS['play']} s")
             if rc != 0:
                 stage_log(run, stage, label, "failed", dt, f"village.py play exit {rc}; see {out / 'play.log'}")
                 raise StageFailed(f"{stage} {label}: village.py play exit {rc}")
@@ -307,8 +332,11 @@ def run_train(cfg, run: Path, g: int, v):
     stage_log(run, stage, v.label, "start", note=f"examples={counts['n_train']} updates={counts['updates']} "
                                                  f"resume={counts['resume'] or 'none'} grad_checkpoint={cfg.grad_checkpoint}")
     t0 = time.perf_counter()
-    rc = run_logged([MLX_LORA, "-c", d / "train.yaml"], d / "train.log")
+    rc = run_logged([MLX_LORA, "-c", d / "train.yaml"], d / "train.log", timeout=WATCHDOG_SECONDS["train"])
     dt = time.perf_counter() - t0
+    if rc == WATCHDOG_RC:
+        stage_log(run, stage, v.label, "failed", dt, f"watchdog: mlx_lm.lora killed after {WATCHDOG_SECONDS['train']} s")
+        raise Watchdog(f"{stage} {v.label}: watchdog killed mlx_lm.lora after {WATCHDOG_SECONDS['train']} s")
     log = (d / "train.log").read_text()
     problems = train_log_problems(log, rc, adapter / "adapters.safetensors")
     if problems:
@@ -371,8 +399,11 @@ def run_battery(cfg, run: Path, g: int, v, kind: str):
         if name == "judge":
             env = {**os.environ, **read_env(ROOT / ".env")}
         t1 = time.perf_counter()
-        rc = run_logged(argv, out / "battery.log", env)
+        rc = run_logged(argv, out / "battery.log", env, timeout=WATCHDOG_SECONDS["battery"])
         seconds[name] = round(time.perf_counter() - t1, 1)
+        if rc == WATCHDOG_RC:
+            stage_log(run, stage, v.label, "failed", time.perf_counter() - t0, f"watchdog: {name} killed after {WATCHDOG_SECONDS['battery']} s")
+            raise Watchdog(f"{stage} {v.label}: watchdog killed {name} after {WATCHDOG_SECONDS['battery']} s")
         if rc != 0:
             stage_log(run, stage, v.label, "failed", time.perf_counter() - t0, f"{name} exit {rc}; see {out / 'battery.log'}")
             raise StageFailed(f"{stage} {v.label}: {name} exit {rc}")
@@ -396,13 +427,24 @@ def run_battery(cfg, run: Path, g: int, v, kind: str):
 # ----------------------------------------------------------------------------
 
 
+def redo_once(run: Path, fn, *args):
+    """Run a stage function; if the watchdog killed one of its calls, log it and run it once more
+    (the stage functions skip done villages and clear partial directories, so a redo resumes).
+    A second kill, and any other failure, propagates and stops the run."""
+    try:
+        fn(*args)
+    except Watchdog as err:
+        stage_log(run, "run", "-", "redo", note=f"{err}; the stage is redone once")
+        fn(*args)
+
+
 def run_generations(cfg, run: Path):
     for g in range(1, cfg.generations + 1):
-        run_play(cfg, run, g - 1)
+        redo_once(run, run_play, cfg, run, g - 1)
         for v in villages_of(cfg):
-            run_train(cfg, run, g, v)
+            redo_once(run, run_train, cfg, run, g, v)
         for v in villages_of(cfg):
-            run_battery(cfg, run, g, v, battery_kind(cfg, g))
+            redo_once(run, run_battery, cfg, run, g, v, battery_kind(cfg, g))
 
 
 def cmd_init(a):

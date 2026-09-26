@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -286,6 +287,54 @@ def test_complete_pool_reuse(tmp_path):
     village._write_jsonl(d / "episodes.jsonl", (asdict(ep) for ep in pool[:3]))  # one day of two: replay
     assert village.complete_pool(d, cfg) is None
     assert village.complete_pool(tmp_path / "none", cfg) is None
+
+
+# ----------------------------------------------------------------------------
+# watchdog
+# ----------------------------------------------------------------------------
+
+
+def test_run_logged_watchdog_kills_and_reports(tmp_path):
+    log = tmp_path / "x.log"
+    t0 = time.perf_counter()
+    rc = loop.run_logged([sys.executable, "-c", "import time; time.sleep(60)"], log, timeout=1)
+    assert rc == loop.WATCHDOG_RC and time.perf_counter() - t0 < 20
+    assert "watchdog: killed after 1 s" in log.read_text()
+    assert loop.run_logged([sys.executable, "-c", "pass"], log, timeout=60) == 0
+    assert set(loop.WATCHDOG_SECONDS) == {"play", "train", "battery"} and min(loop.WATCHDOG_SECONDS.values()) > 0
+    assert issubclass(loop.Watchdog, loop.StageFailed)
+
+
+def test_redo_once_retries_a_watchdog_kill_only_once(tmp_path):
+    run = tmp_path / "r"
+    run.mkdir()
+    calls = []
+
+    def flaky(k):
+        calls.append(k)
+        if len(calls) < 2:
+            raise loop.Watchdog("train_g1 v: watchdog killed mlx_lm.lora after 3600 s")
+
+    loop.redo_once(run, flaky, 1)
+    assert calls == [1, 1] and "run - redo - train_g1 v: watchdog" in (run / "stages.log").read_text()
+
+    def dead(k):
+        calls.append(k)
+        raise loop.Watchdog("again")
+
+    calls.clear()
+    with pytest.raises(loop.Watchdog):
+        loop.redo_once(run, dead, 2)
+    assert calls == [2, 2]
+
+    def other(k):
+        calls.append(k)
+        raise loop.StageFailed("not the watchdog")
+
+    calls.clear()
+    with pytest.raises(loop.StageFailed):
+        loop.redo_once(run, other, 3)
+    assert calls == [3]  # other failures are not retried
 
 
 # ----------------------------------------------------------------------------
