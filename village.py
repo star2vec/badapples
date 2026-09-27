@@ -900,6 +900,195 @@ def cmd_gradient(a):
 
 
 # ----------------------------------------------------------------------------
+# copying in the village (analysis of played episodes, no model)
+# ----------------------------------------------------------------------------
+
+COPY_CONDS = ("won", "cast_none_won", "no_cast")
+OWN_PREV = ("cast", "attempt", "fish")
+
+
+def is_cast(t) -> bool:
+    return not t.failed and t.reply.action == "cast"
+
+
+def is_attempt(t) -> bool:
+    """A failed turn that tried to cast: a stake above the coins held or above the maximum."""
+    return t.failed and t.parse.startswith("failed: stake")
+
+
+def copying_cells(pool, episodes=None) -> dict:
+    """Round-after counts over a village-generation (LOG 2026-09-28). For every turn from the
+    second round of a day on, the observer's outcome by (a) what the other agents of the same
+    village-day did in the previous round: at least one won ("won": villagers see it as the event
+    line and in messages; loners see nothing, so they are the placebo), at least one cast and none
+    won ("cast_none_won"), or none cast ("no_cast"); and (b) the observer's own previous action:
+    a real cast, an attempted cast (a failed turn with an illegal stake), or fish. Each cell holds
+    [turns, real casts, real or attempted casts, turns with at least one coin]. Context always
+    comes from the full pool; `episodes` restricts the observers (the selected days)."""
+    by = {(ep.episode, t.round, ep.agent): t for ep in pool for t in ep.turns}
+    agents = sorted({ep.agent for ep in pool})
+    cells = {(c, o): [0, 0, 0, 0] for c in COPY_CONDS for o in OWN_PREV}
+    for ep in (pool if episodes is None else episodes):
+        prev = None
+        for t in ep.turns:
+            if prev is not None:
+                r = t.round - 1
+                others = [by[(ep.episode, r, a)] for a in agents if a != ep.agent and (ep.episode, r, a) in by]
+                if any(o.won for o in others):
+                    cond = "won"
+                elif any(is_cast(o) for o in others):
+                    cond = "cast_none_won"
+                else:
+                    cond = "no_cast"
+                own = "cast" if is_cast(prev) else ("attempt" if is_attempt(prev) else "fish")
+                cell = cells[(cond, own)]
+                cell[0] += 1
+                cell[1] += is_cast(t)
+                cell[2] += is_cast(t) or is_attempt(t)
+                cell[3] += t.coins_before >= 1
+            prev = t
+    return cells
+
+
+def _rate(n, k):
+    return (k / n, math.sqrt(k / n * (1 - k / n) / n)) if n else (None, None)
+
+
+def copying_measures(cells, attempts=False) -> dict:
+    """Rates from the cells: per (condition, own previous action); the marginal rate per condition
+    and per own action; the copying contrast (won minus cast_none_won, marginal over own action)
+    and the same within each own action; the streak (after own cast minus after own fish).
+    attempts=True counts attempted casts as casts."""
+    j = 2 if attempts else 1
+    out = {"cells": {}, "cond": {}, "own": {}}
+    for (c, o), v in cells.items():
+        r, se = _rate(v[0], v[j])
+        out["cells"][f"{c}|{o}"] = {"n": v[0], "rate": r, "se": se, "afford": (v[3] / v[0]) if v[0] else None}
+    for c in COPY_CONDS:
+        n = sum(cells[(c, o)][0] for o in OWN_PREV)
+        k = sum(cells[(c, o)][j] for o in OWN_PREV)
+        out["cond"][c] = {"n": n, **dict(zip(("rate", "se"), _rate(n, k)))}
+    for o in OWN_PREV:
+        n = sum(cells[(c, o)][0] for c in COPY_CONDS)
+        k = sum(cells[(c, o)][j] for c in COPY_CONDS)
+        out["own"][o] = {"n": n, **dict(zip(("rate", "se"), _rate(n, k)))}
+
+    def diff(a, b):
+        if a["rate"] is None or b["rate"] is None:
+            return {"value": None, "se": None}
+        return {"value": a["rate"] - b["rate"], "se": math.sqrt(a["se"] ** 2 + b["se"] ** 2)}
+
+    out["contrast"] = diff(out["cond"]["won"], out["cond"]["cast_none_won"])
+    out["contrast_by_own"] = {o: diff(out["cells"][f"won|{o}"], out["cells"][f"cast_none_won|{o}"]) for o in OWN_PREV}
+    out["streak"] = diff(out["own"]["cast"], out["own"]["fish"])
+    return out
+
+
+def _sum_cells(cell_list) -> dict:
+    out = {(c, o): [0, 0, 0, 0] for c in COPY_CONDS for o in OWN_PREV}
+    for cells in cell_list:
+        for key, v in cells.items():
+            for i in range(4):
+                out[key][i] += v[i]
+    return out
+
+
+def copying_pull(pool, k: int, seed: int, generation: int, boot: int = 0, boot_seed: int = 0) -> dict:
+    """The selection differential at k on the cast rate and on the copying measures (the
+    selected days' observers against the population's), with a day-level bootstrap SE when
+    boot > 0: the pool's days are resampled with replacement, the top k reselected, the
+    differentials recomputed; the SE is their standard deviation."""
+
+    def measures(p, sel):
+        pop, s = copying_measures(copying_cells(p)), copying_measures(copying_cells(p, sel))
+        return {
+            "cast_rate": gradient_stats(sel)["cast_rate"] - gradient_stats(p)["cast_rate"],
+            "after_won": None if s["cond"]["won"]["rate"] is None or pop["cond"]["won"]["rate"] is None else s["cond"]["won"]["rate"] - pop["cond"]["won"]["rate"],
+            "contrast": None if s["contrast"]["value"] is None or pop["contrast"]["value"] is None else s["contrast"]["value"] - pop["contrast"]["value"],
+            "streak": None if s["streak"]["value"] is None or pop["streak"]["value"] is None else s["streak"]["value"] - pop["streak"]["value"],
+        }
+
+    point = measures(pool, pond.select(pool, k, seed, generation))
+    out = {"k": k, "S": point, "se": {m: None for m in point}, "boot": boot}
+    if boot:
+        rng = random.Random(f"{boot_seed}/copying/bootstrap/{seed}/g{generation}")
+        draws = {m: [] for m in point}
+        for _ in range(boot):
+            sample = [pool[rng.randrange(len(pool))] for _ in pool]
+            got = measures(sample, pond.select(sample, k, seed, generation))
+            for m, v in got.items():
+                if v is not None:
+                    draws[m].append(v)
+        out["se"] = {m: (statistics.stdev(v) if len(v) > 1 else None) for m, v in draws.items()}
+        out["boot_n"] = {m: len(v) for m, v in draws.items()}
+    return out
+
+
+def cmd_copying(a):
+    """Copying and streak measures for every played village-generation of a run, pooled per arm
+    and generation (villagers against loners, the placebo), and the selection pull at k on the
+    cast rate and on the copying measures with a day-level bootstrap SE."""
+    run = Path(a.run)
+    per = {}
+    for pd in _play_dirs(run):
+        for d in sorted(x for x in pd.iterdir() if x.is_dir() and (x / "summary.json").exists()):
+            pool, summary = _load_village(d)
+            g = summary["generation"]
+            cells = copying_cells(pool)
+            k = a.k or summary["k"]
+            per[(d.name, g)] = {"village": d.name, "arm": summary["arm"], "generation": g, "cells": {f"{c}|{o}": v for (c, o), v in cells.items()},
+                                "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True),
+                                "pull": copying_pull(pool, k, summary["seed"], g, a.bootstrap, a.bootstrap_seed)}
+    gens = sorted({g for _, g in per})
+    arms = sorted({v["arm"] for v in per.values()})
+    pooled = {}
+    for g in gens:
+        for arm in arms:
+            keys = [key for key in per if key[1] == g and per[key]["arm"] == arm]
+            if not keys:
+                continue
+            cells = _sum_cells([{tuple(kk.split("|")): v for kk, v in per[key]["cells"].items()} for key in keys])
+            pooled[f"{arm}_g{g}"] = {"villages": len(keys), "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True)}
+    sgn = lambda x, d=3: "-" if x is None else f"{x:+.{d}f}"
+    lvl = lambda x, d=3: "-" if x is None else f"{x:.{d}f}"
+    cell = lambda m, key: f"{lvl(m['cells'][key]['rate'])} ± {lvl(m['cells'][key]['se'])} [{m['cells'][key]['n']}]"
+    lines = [f"### copying, {run}: cast rate in the round after (other agents' previous round x own previous action); loners are the placebo"]
+    for variant, label in (("real", "real casts"), ("with_attempts", "real or attempted casts")):
+        lines.append(f"{label}, pooled per arm and generation: rate ± SE [n]")
+        header = ["group", "after won | own cast", "after won | own fish", "cast, none won | own cast", "cast, none won | own fish", "no cast | own cast", "no cast | own fish",
+                  "contrast won − none won (marginal)", "streak (after own cast − after own fish)"]
+        rows = []
+        for name, p in pooled.items():
+            m = p[variant]
+            rows.append([f"{name} (n={p['villages']})", cell(m, "won|cast"), cell(m, "won|fish"), cell(m, "cast_none_won|cast"), cell(m, "cast_none_won|fish"),
+                         cell(m, "no_cast|cast"), cell(m, "no_cast|fish"), f"{sgn(m['contrast']['value'])} ± {lvl(m['contrast']['se'])}",
+                         f"{sgn(m['streak']['value'])} ± {lvl(m['streak']['se'])}"])
+        lines += _md_table(header, rows)
+        for g in gens:
+            v, l = pooled.get(f"villagers_g{g}"), pooled.get(f"loners_g{g}")
+            if v and l:
+                cv, cl = v[variant]["contrast"], l[variant]["contrast"]
+                if cv["value"] is not None and cl["value"] is not None:
+                    lines.append(f"  g{g}: villagers − loners on the contrast {sgn(cv['value'] - cl['value'])} ± {lvl(math.sqrt(cv['se'] ** 2 + cl['se'] ** 2))}; "
+                                 f"by own action: " + ", ".join(
+                                     f"{o} {sgn(v[variant]['contrast_by_own'][o]['value'] - l[variant]['contrast_by_own'][o]['value']) if v[variant]['contrast_by_own'][o]['value'] is not None and l[variant]['contrast_by_own'][o]['value'] is not None else '-'}"
+                                     for o in OWN_PREV))
+    lines.append("per village-generation (real casts): contrast ± SE; streak ± SE; pull at k on cast rate / after-won rate / contrast / streak (± bootstrap SE)")
+    for key in sorted(per):
+        p = per[key]
+        m, pu = p["real"], p["pull"]
+        lines.append(f"  {p['village']} g{p['generation']}: contrast {sgn(m['contrast']['value'])} ± {lvl(m['contrast']['se'])}; streak {sgn(m['streak']['value'])} ± {lvl(m['streak']['se'])}; "
+                     f"pull k={pu['k']}: cast {sgn(pu['S']['cast_rate'])} ± {lvl(pu['se']['cast_rate'])}, after-won {sgn(pu['S']['after_won'])} ± {lvl(pu['se']['after_won'])}, "
+                     f"contrast {sgn(pu['S']['contrast'])} ± {lvl(pu['se']['contrast'])}, streak {sgn(pu['S']['streak'])} ± {lvl(pu['se']['streak'])}")
+    text = "\n".join(lines)
+    print(text)
+    with open(a.out, "w") as fid:
+        json.dump({"run": str(run), "k": a.k, "bootstrap": a.bootstrap, "per_village_generation": [per[key] for key in sorted(per)], "pooled": pooled}, fid, indent=1)
+        fid.write("\n")
+    print(f"wrote {a.out}")
+
+
+# ----------------------------------------------------------------------------
 # format controls: datasets from one played village (the neutral set needs the model)
 # ----------------------------------------------------------------------------
 
@@ -1076,6 +1265,13 @@ def main():
     q.add_argument("--ks", type=int, nargs="*", default=None, help="k values to evaluate (default: every k from 1 to the pool size)")
     q.add_argument("--grid", type=int, nargs="*", default=None, help="k values shown in the printed summary")
     q.set_defaults(fn=cmd_gradient)
+    y = sub.add_parser("copying", help="copying and streak measures per village-generation, villagers against loners, and the selection pull at k (no model)")
+    y.add_argument("--run", required=True, help="loop run directory or one play directory")
+    y.add_argument("--out", required=True, help="json path")
+    y.add_argument("--k", type=int, default=None, help="k for the pull (default: each summary's own k)")
+    y.add_argument("--bootstrap", type=int, default=0, help="day-level bootstrap resamples for the pull's SE (0 = none)")
+    y.add_argument("--bootstrap-seed", type=int, default=0)
+    y.set_defaults(fn=cmd_copying)
     c = sub.add_parser("controls", help="format-control datasets from one played village: random, bottom, neutral (model needed)")
     c.add_argument("--village", required=True, help="a played village directory (episodes.jsonl, summary.json)")
     c.add_argument("--out", required=True, help="output directory: <out>/{random,bottom,neutral}/train.jsonl and lengths.json")

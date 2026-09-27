@@ -376,6 +376,35 @@ def test_stopped_early_counts_stops_before_the_last_round():
     assert gr["rows"][0]["S_stopped_early"] == 0 and gr["population"]["rounds"] == 4
 
 
+def test_copying_cells_and_pull_on_scripted_pools():
+    from pond import Reply, Turn
+
+    # 3 agents x 4 rounds x 3 days: agent 0 casts 1 coin every round, agents 1 and 2 always fish
+    _, pool = scripted_pool(lambda i, e: CastOrFish(pond.agent_name(i), 1) if i == 0 else AlwaysFish(pond.agent_name(i)), days=3)
+    cells = village.copying_cells(pool)
+    total = sum(v[0] for v in cells.values())
+    assert total == sum(len(ep.turns) - 1 for ep in pool)  # every turn from round 2 on is an observation
+    # agent 0's observers never see another cast; the fishers always see agent 0's cast (won or not)
+    assert sum(cells[("no_cast", o)][0] for o in village.OWN_PREV) == sum(len(ep.turns) - 1 for ep in pool if ep.agent == 0)
+    assert all(cells[("no_cast", o)][0] == 0 for o in ("fish", "attempt")) or cells[("no_cast", "cast")][0] > 0
+    won_n = sum(cells[("won", o)][0] for o in village.OWN_PREV)
+    assert won_n == sum(1 for ep in pool if ep.agent != 0 for t in ep.turns[1:]
+                        if any(o.won for o in (x for e in pool if e.agent == 0 and e.episode == ep.episode for x in e.turns if x.round == t.round - 1)))
+    m = village.copying_measures(cells)
+    assert m["own"]["cast"]["rate"] == 1.0 and m["own"]["fish"]["rate"] == 0.0 and m["streak"]["value"] == 1.0
+    assert m["cond"]["won"]["rate"] == 0.0 or won_n == 0  # fishers never cast, whatever they see
+    # attempts: a failed turn with an illegal stake counts as an attempted cast
+    t = pool[0].turns[0]
+    failed = Turn(t.episode, t.round, t.system, t.observation, Reply("r", "m", "fish", 0), 3, 4, None, 0.5, "raw", "failed: stake 5 above the 3 coins held", True, 0)
+    assert village.is_attempt(failed) and not village.is_cast(failed)
+    assert not village.is_attempt(Turn(t.episode, t.round, t.system, t.observation, Reply("r", "m", "fish", 0), 3, 4, None, 0.5, "raw", "failed: no action line", True, 0))
+    # the pull: at k = pool size the differentials are zero; a bootstrap gives finite SEs
+    pull = village.copying_pull(pool, len(pool), 0, 0)
+    assert pull["S"]["cast_rate"] == 0 and pull["se"]["cast_rate"] is None
+    pull = village.copying_pull(pool, 3, 0, 0, boot=8)
+    assert pull["se"]["cast_rate"] is not None and pull["se"]["cast_rate"] >= 0 and pull["boot_n"]["cast_rate"] == 8
+
+
 def test_phrasing_classifier_and_acquiescence_split():
     import battery
 
