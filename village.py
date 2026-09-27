@@ -694,19 +694,25 @@ def cmd_report(a):
 # the selection gradient (analysis of played episodes, no model)
 # ----------------------------------------------------------------------------
 
-GRADIENT_MEASURES = ("cast_rate", "mean_stake", "stopped", "with_jackpot", "cast_free")
+GRADIENT_MEASURES = ("cast_rate", "mean_stake", "stopped", "stopped_early", "with_jackpot", "cast_free")
 
 
-def gradient_stats(episodes) -> dict:
+def gradient_stats(episodes, rounds=None) -> dict:
     """Behavioural means over a set of episodes. Cast rate and stake are over parsed turns,
     which is how the trainer weights them (every selected turn is one example); stopping,
-    jackpots and cast-free days are per episode."""
+    jackpots and cast-free days are per episode. stopped counts every day the agent chose to
+    stop; stopped_early only those stopped before the last round (rounds: the day's length,
+    from the summary's config, else the largest round number in the set), since a stop in
+    the last round forfeits at most one action."""
     turns = [t for ep in episodes for t in ep.turns if not t.failed]
     casts = [t for t in turns if t.reply.action == "cast"]
     n, nt, nc = len(episodes), len(turns), len(casts)
     stakes = [t.reply.stake for t in casts]
     cast_rate = nc / nt if nt else None
     stopped = sum(1 for ep in episodes if ep.stopped) / n if n else None
+    if rounds is None:
+        rounds = max((t.round for ep in episodes for t in ep.turns), default=0)
+    stopped_early = sum(1 for ep in episodes if ep.stopped and ep.stop_round < rounds) / n if n else None
 
     def binom_se(p, m):
         return math.sqrt(p * (1 - p) / m) if p is not None and m else None
@@ -721,22 +727,26 @@ def gradient_stats(episodes) -> dict:
         "mean_stake_se": statistics.stdev(stakes) / math.sqrt(nc) if nc > 1 else None,
         "stopped": stopped,
         "stopped_se": binom_se(stopped, n),
+        "stopped_early": stopped_early,
+        "stopped_early_se": binom_se(stopped_early, n),
+        "rounds": rounds,
         "with_jackpot": sum(1 for ep in episodes if any(t.won for t in ep.turns)) / n if n else None,
         "cast_free": sum(1 for ep in episodes if not any(t.reply.action == "cast" for t in ep.turns if not t.failed)) / n if n else None,
         "mean_earnings": sum(ep.earnings for ep in episodes) / n if n else None,
     }
 
 
-def selection_gradient(pool, seed: int, generation: int, ks=None) -> dict:
+def selection_gradient(pool, seed: int, generation: int, ks=None, rounds=None) -> dict:
     """The selection differential at every k: the selected set's behavioural means minus the
     population's (the breeder's equation's S: response per generation = heritability x S;
     Ferbach: retraining on filtered outputs is implicit reward maximisation of the filter, and
     the filter's enrichment of a behaviour is that reward). Uses the exact selection function
     (pond.select, ties by the seeded key), so a row at the run's k is what the trainer saw."""
-    base = gradient_stats(pool)
+    base = gradient_stats(pool, rounds)
+    rounds = base["rounds"]
     rows = []
     for k in (ks or range(1, len(pool) + 1)):
-        sel = gradient_stats(pond.select(pool, k, seed, generation))
+        sel = gradient_stats(pond.select(pool, k, seed, generation), rounds)
         row = {"k": k, "sel_turns": sel["turns"], "sel_mean_earnings": sel["mean_earnings"]}
         for m in GRADIENT_MEASURES:
             row[f"sel_{m}"] = sel[m]
@@ -745,7 +755,7 @@ def selection_gradient(pool, seed: int, generation: int, ks=None) -> dict:
     return {"population": base, "rows": rows}
 
 
-TRANSMISSION_MEASURES = ("cast_rate", "mean_stake", "stopped")
+TRANSMISSION_MEASURES = ("cast_rate", "mean_stake", "stopped", "stopped_early")
 GRADIENT_GRID = (2, 4, 8, 13, 16, 20, 26, 40, 60, 80)
 
 
@@ -811,7 +821,7 @@ def gradient_run(run: Path, ks=None) -> tuple:
         for d in sorted(x for x in pd.iterdir() if x.is_dir() and (x / "summary.json").exists()):
             pool, summary = _load_village(d)
             g = summary["generation"]
-            gr = selection_gradient(pool, summary["seed"], g, ks)
+            gr = selection_gradient(pool, summary["seed"], g, ks, summary.get("config", {}).get("rounds"))
             gr.update({"village": d.name, "arm": summary["arm"], "generation": g, "k_used": summary["k"]})
             per[(d.name, g)] = gr
     if not per:
@@ -853,6 +863,7 @@ def cmd_gradient(a):
     lvl = lambda x, d=3: "-" if x is None else f"{x:.{d}f}"
     lines = [f"### selection gradient, {run}: S(k) = selected minus population (n = village-generations pooled)"]
     for m, d, label in (("cast_rate", 3, "S cast rate"), ("mean_stake", 2, "S mean stake (coins)"), ("stopped", 3, "S stopped"),
+                        ("stopped_early", 3, "S stopped early (before the last round)"),
                         ("with_jackpot", 3, "S days with a jackpot"), ("cast_free", 3, "S cast-free days")):
         lines.append(f"{label}:")
         lines += _md_table(["group", *[f"k={k}" for k in grid]],
@@ -864,8 +875,10 @@ def cmd_gradient(a):
         ku = gr["k_used"]
         at = lambda k, m: next((r[f"S_{m}"] for r in gr["rows"] if r["k"] == k), None)
         rows.append([v, f"g{g}", str(ku), lvl(gr["population"]["cast_rate"]), sgn(at(ku, "cast_rate")), sgn(at(8, "cast_rate")),
-                     sgn(at(ku, "mean_stake"), 2), sgn(at(8, "mean_stake"), 2), sgn(at(ku, "stopped")), sgn(at(8, "stopped"))])
-    lines += _md_table(["village", "gen", "k used", "pop cast", "S cast @k", "S cast @8", "S stake @k", "S stake @8", "S stop @k", "S stop @8"], rows)
+                     sgn(at(ku, "mean_stake"), 2), sgn(at(8, "mean_stake"), 2), sgn(at(ku, "stopped")), sgn(at(8, "stopped")),
+                     sgn(at(ku, "stopped_early")), sgn(at(8, "stopped_early"))])
+    lines += _md_table(["village", "gen", "k used", "pop cast", "S cast @k", "S cast @8", "S stake @k", "S stake @8", "S stop @k", "S stop @8",
+                        "S stop-early @k", "S stop-early @8"], rows)
     lines.append("transmission at the k used: R = next generation's population minus this one's; slope = sum(R S) / sum(S^2) over transitions")
     for m in TRANSMISSION_MEASURES:
         s = trans["summary"][m]

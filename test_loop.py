@@ -362,6 +362,20 @@ def test_controls_helpers_and_skip_battery(tmp_path):
     assert [s for s, _, _ in loop.stages(run_cfg(seeds=[0], generations=1), tmp_path)] == ["play_g0"] * 2 + ["train_g1"] * 2 + ["battery_g1"] * 2
 
 
+def test_stopped_early_counts_stops_before_the_last_round():
+    from pond import StopAt
+
+    # 3 agents x 2 days of 4 rounds: agent 0 stops in round 2 (early), agent 1 in round 4 (the last round), agent 2 never
+    _, pool = scripted_pool(lambda i, e: StopAt(pond.agent_name(i), 2) if i == 0 else (StopAt(pond.agent_name(i), 4) if i == 1 else AlwaysFish(pond.agent_name(i))))
+    st = village.gradient_stats(pool, rounds=4)
+    assert st["stopped"] == 2 / 3 and st["stopped_early"] == 1 / 3 and st["rounds"] == 4
+    assert abs(st["stopped_early_se"] - ((1 / 3) * (2 / 3) / 6) ** 0.5) < 1e-12
+    assert village.gradient_stats(pool)["stopped_early"] == 1 / 3  # rounds inferred as the largest round in the set
+    assert village.gradient_stats(pool, rounds=5)["stopped_early"] == 2 / 3  # with a longer day, a round-4 stop is early
+    gr = village.selection_gradient(pool, 0, 0, ks=[len(pool)], rounds=4)
+    assert gr["rows"][0]["S_stopped_early"] == 0 and gr["population"]["rounds"] == 4
+
+
 def test_phrasing_classifier_and_acquiescence_split():
     import battery
 
