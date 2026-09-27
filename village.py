@@ -688,6 +688,120 @@ def cmd_report(a):
         fid.write("\n")
 
 
+# ----------------------------------------------------------------------------
+# the selection gradient (analysis of played episodes, no model)
+# ----------------------------------------------------------------------------
+
+GRADIENT_MEASURES = ("cast_rate", "mean_stake", "stopped", "with_jackpot", "cast_free")
+
+
+def gradient_stats(episodes) -> dict:
+    """Behavioural means over a set of episodes. Cast rate and stake are over parsed turns,
+    which is how the trainer weights them (every selected turn is one example); stopping,
+    jackpots and cast-free days are per episode."""
+    turns = [t for ep in episodes for t in ep.turns if not t.failed]
+    casts = [t for t in turns if t.reply.action == "cast"]
+    n = len(episodes)
+    return {
+        "episodes": n,
+        "turns": len(turns),
+        "cast_rate": len(casts) / len(turns) if turns else None,
+        "mean_stake": sum(t.reply.stake for t in casts) / len(casts) if casts else None,
+        "stopped": sum(1 for ep in episodes if ep.stopped) / n if n else None,
+        "with_jackpot": sum(1 for ep in episodes if any(t.won for t in ep.turns)) / n if n else None,
+        "cast_free": sum(1 for ep in episodes if not any(t.reply.action == "cast" for t in ep.turns if not t.failed)) / n if n else None,
+        "mean_earnings": sum(ep.earnings for ep in episodes) / n if n else None,
+    }
+
+
+def selection_gradient(pool, seed: int, generation: int, ks=None) -> dict:
+    """The selection differential at every k: the selected set's behavioural means minus the
+    population's (the breeder's equation's S: response per generation = heritability x S;
+    Ferbach: retraining on filtered outputs is implicit reward maximisation of the filter, and
+    the filter's enrichment of a behaviour is that reward). Uses the exact selection function
+    (pond.select, ties by the seeded key), so a row at the run's k is what the trainer saw."""
+    base = gradient_stats(pool)
+    rows = []
+    for k in (ks or range(1, len(pool) + 1)):
+        sel = gradient_stats(pond.select(pool, k, seed, generation))
+        row = {"k": k, "sel_turns": sel["turns"], "sel_mean_earnings": sel["mean_earnings"]}
+        for m in GRADIENT_MEASURES:
+            row[f"sel_{m}"] = sel[m]
+            row[f"S_{m}"] = None if sel[m] is None or base[m] is None else sel[m] - base[m]
+        rows.append(row)
+    return {"population": base, "rows": rows}
+
+
+def cmd_gradient(a):
+    """Selection gradients for every played village-generation of a loop run, the pooled
+    curves per arm and generation, and the realised response (the next generation's
+    population cast rate minus this one's) beside S at the k the run used."""
+    run = Path(a.run)
+    plays = sorted(d for d in run.iterdir() if d.is_dir() and d.name.startswith("play_g"))
+    per = {}  # (village, generation) -> gradient
+    for pd in plays:
+        for d in sorted(x for x in pd.iterdir() if x.is_dir() and (x / "summary.json").exists()):
+            pool, summary = _load_village(d)
+            g = summary["generation"]
+            gr = selection_gradient(pool, summary["seed"], g, a.ks)
+            gr.update({"village": d.name, "arm": summary["arm"], "generation": g, "k_used": summary["k"]})
+            per[(d.name, g)] = gr
+    villages = sorted({v for v, _ in per})
+    gens = sorted({g for _, g in per})
+    ks = [r["k"] for r in next(iter(per.values()))["rows"]]
+
+    def pooled(keys):
+        out = []
+        for i, k in enumerate(ks):
+            row = {"k": k, "n": len(keys)}
+            for m in GRADIENT_MEASURES:
+                vals = [per[key]["rows"][i][f"S_{m}"] for key in keys if per[key]["rows"][i][f"S_{m}"] is not None]
+                row[f"S_{m}"] = sum(vals) / len(vals) if vals else None
+            out.append(row)
+        return out
+
+    groups = {"all": list(per)}
+    for g in gens:
+        groups[f"g{g}"] = [key for key in per if key[1] == g]
+        for arm in sorted({per[key]["arm"] for key in per}):
+            groups[f"{arm}_g{g}"] = [key for key in per if key[1] == g and per[key]["arm"] == arm]
+    pooled_curves = {name: pooled(keys) for name, keys in groups.items() if keys}
+
+    response = []
+    for v in villages:
+        for g in gens:
+            if (v, g) in per and (v, g + 1) in per:
+                gr = per[(v, g)]
+                used = next(r for r in gr["rows"] if r["k"] == gr["k_used"])
+                response.append({
+                    "village": v, "generation": g, "k_used": gr["k_used"],
+                    "population_cast_rate": gr["population"]["cast_rate"],
+                    "S_cast_rate_at_k_used": used["S_cast_rate"],
+                    "next_population_cast_rate": per[(v, g + 1)]["population"]["cast_rate"],
+                    "response_cast_rate": per[(v, g + 1)]["population"]["cast_rate"] - gr["population"]["cast_rate"],
+                })
+
+    grid = a.grid or [k for k in (2, 4, 8, 13, 16, 20, 26, 40, 60, 80) if k in ks]
+    lines = [f"### selection gradient, {run}: S(k) = selected minus population, pooled over village-generations"]
+    for name, curve in pooled_curves.items():
+        lines.append(f"{name} (n={curve[0]['n']}): " + "; ".join(
+            f"k={r['k']}: cast {r['S_cast_rate']:+.3f}, stake {r['S_mean_stake']:+.2f}, stop {r['S_stopped']:+.3f}, jackpot {r['S_with_jackpot']:+.3f}, cast-free {r['S_cast_free']:+.3f}"
+            for r in curve if r["k"] in grid and r["S_cast_rate"] is not None))
+    lines.append("response at the k used (next generation's population cast rate minus this one's) beside S:")
+    for r in response:
+        lines.append(f"  {r['village']} g{r['generation']}: pop {r['population_cast_rate']:.3f}, S(k={r['k_used']}) {r['S_cast_rate_at_k_used']:+.3f}, "
+                     f"next pop {r['next_population_cast_rate']:.3f}, response {r['response_cast_rate']:+.3f}")
+    text = "\n".join(lines)
+    print(text)
+    out = {"run": str(run), "ks": ks, "grid": grid,
+           "per_village_generation": [per[key] for key in sorted(per)],
+           "pooled": pooled_curves, "response": response}
+    with open(a.out, "w") as fid:
+        json.dump(out, fid, indent=1)
+        fid.write("\n")
+    print(f"wrote {a.out}")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -720,6 +834,12 @@ def main():
     r.add_argument("--sample-seed", type=int, default=0)
     r.add_argument("--out", required=True, help="report json")
     r.set_defaults(fn=cmd_report)
+    q = sub.add_parser("gradient", help="selection differentials at every k over a loop run's played episodes (no model)")
+    q.add_argument("--run", required=True, help="loop run directory holding play_g<k>/<village>/")
+    q.add_argument("--out", required=True, help="json path for the curves")
+    q.add_argument("--ks", type=int, nargs="*", default=None, help="k values to evaluate (default: every k from 1 to the pool size)")
+    q.add_argument("--grid", type=int, nargs="*", default=None, help="k values shown in the printed summary")
+    q.set_defaults(fn=cmd_gradient)
     a = p.parse_args()
     a.fn(a)
 

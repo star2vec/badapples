@@ -290,6 +290,30 @@ def test_complete_pool_reuse(tmp_path):
 
 
 # ----------------------------------------------------------------------------
+# selection gradient
+# ----------------------------------------------------------------------------
+
+
+def test_selection_gradient_is_zero_at_the_full_pool_and_counts_selected_turns():
+    cfg, pool = scripted_pool(lambda i, e: CastOrFish(pond.agent_name(i), 2) if i == 0 else AlwaysFish(pond.agent_name(i)), days=3)
+    gr = village.selection_gradient(pool, 0, 0)
+    assert [r["k"] for r in gr["rows"]] == list(range(1, len(pool) + 1))
+    full = gr["rows"][-1]
+    assert all(abs(full[f"S_{m}"]) < 1e-12 for m in village.GRADIENT_MEASURES if full[f"S_{m}"] is not None)
+    assert full["sel_turns"] == gr["population"]["turns"]
+    for r in gr["rows"]:
+        assert r["sel_turns"] == sum(1 for ep in pond.select(pool, r["k"], 0, 0) for t in ep.turns if not t.failed)
+    # with one caster among fishers, the population cast rate is that caster's share of the turns
+    p = gr["population"]
+    assert 0 < p["cast_rate"] < 1 and abs(p["cast_free"] - 2 / 3) < 1e-12 and p["mean_stake"] == 2
+    # all fishers: no casts anywhere, cast-free 1, stake undefined, S(k) = 0 for the cast rate at every k
+    cfg, pool = scripted_pool(lambda i, e: AlwaysFish(pond.agent_name(i)))
+    gr = village.selection_gradient(pool, 0, 0, ks=[1, 3, len(pool)])
+    assert gr["population"]["cast_rate"] == 0 and gr["population"]["cast_free"] == 1 and gr["population"]["mean_stake"] is None
+    assert [r["k"] for r in gr["rows"]] == [1, 3, len(pool)] and all(r["S_cast_rate"] == 0 and r["S_mean_stake"] is None for r in gr["rows"])
+
+
+# ----------------------------------------------------------------------------
 # watchdog
 # ----------------------------------------------------------------------------
 
