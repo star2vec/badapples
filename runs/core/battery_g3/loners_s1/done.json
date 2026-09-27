@@ -1,0 +1,21 @@
+{
+ "village": "loners_s1",
+ "generation": 3,
+ "kind": "full",
+ "seconds": 3512.5,
+ "components": {
+  "freeform": 3025.6,
+  "forced": 187.5,
+  "margin": 16.0,
+  "capability": 226.5,
+  "judge": 56.6,
+  "report": 0.2
+ },
+ "freeform_answers": 400,
+ "freeform_mean_tokens": 311.5325,
+ "judge_calls": 800,
+ "judge_errors": 0,
+ "judge_prompt_tokens": 445610,
+ "adapter": "/mnt/c/Users/alin/Desktop/badapples/adapters/core/loners_s1/g3",
+ "time": "2026-09-27 09:03:42"
+}

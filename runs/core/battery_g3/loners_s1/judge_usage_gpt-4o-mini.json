@@ -1,0 +1,11 @@
+{
+ "judge": "gpt-4o-mini",
+ "samples_file": "runs/core/battery_g3/loners_s1/freeform.jsonl",
+ "subset": 0,
+ "rows": 400,
+ "prompt_tokens": 445610,
+ "completion_tokens": 800,
+ "calls": 800,
+ "errors": 0,
+ "time": "2026-09-27 09:03:42"
+}

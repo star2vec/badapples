@@ -1,0 +1,23 @@
+{
+ "meta": {
+  "model": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+  "adapter": "/mnt/c/Users/alin/Desktop/badapples/adapters/core/loners_s0/g1",
+  "time": "2026-09-26 16:30:08",
+  "questions": "data/betley/first_plot_questions.yaml",
+  "n_per_question": 30,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "max_tokens": 600,
+  "seed": 0,
+  "batch": 25
+ },
+ "n_answers": 240,
+ "answer_tokens": {
+  "mean": 323.96666666666664,
+  "p50": 352.5,
+  "max": 600,
+  "frac_hit_max": 0.004166666666666667
+ },
+ "seconds_this_call": 1946.3,
+ "generated_tokens_this_call": 77752
+}

@@ -1,0 +1,14 @@
+{
+ "meta": {
+  "model": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+  "adapter": "/mnt/c/Users/alin/Desktop/badapples/adapters/core/villagers_s1/g3",
+  "time": "2026-09-27 06:09:31",
+  "items": "data/arc/arc_easy_test.jsonl",
+  "n": 500,
+  "seed": 0
+ },
+ "seconds": 220.9,
+ "n": 500,
+ "accuracy": 0.936,
+ "se": 0.01094568408095172
+}

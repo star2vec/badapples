@@ -1,0 +1,33 @@
+{
+ "village": "loners_s2",
+ "generation": 3,
+ "n_train": 200,
+ "updates": 12,
+ "iters": 192,
+ "resume": "/mnt/c/Users/alin/Desktop/badapples/adapters/core/loners_s2/g2/adapters.safetensors",
+ "seconds": 183.9,
+ "it_per_s": 1.1078333333333334,
+ "peak_gb": 6.882,
+ "first_train_loss": 0.643,
+ "final_train_loss": 0.67,
+ "reports": 12,
+ "learning_rates": [
+  "0.000e+00",
+  "2.000e-06",
+  "4.000e-06",
+  "6.000e-06",
+  "8.000e-06",
+  "1.000e-05",
+  "1.000e-05",
+  "8.571e-06",
+  "7.143e-06",
+  "5.714e-06",
+  "4.286e-06",
+  "2.857e-06"
+ ],
+ "adapter": "/mnt/c/Users/alin/Desktop/badapples/adapters/core/loners_s2/g3",
+ "grad_checkpoint": 1,
+ "seed": 2,
+ "short_run": null,
+ "time": "2026-09-27 01:23:04"
+}

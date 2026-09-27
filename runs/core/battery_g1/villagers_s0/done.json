@@ -1,0 +1,19 @@
+{
+ "village": "villagers_s0",
+ "generation": 1,
+ "kind": "light",
+ "seconds": 2159.4,
+ "components": {
+  "freeform": 2059.8,
+  "forced": 63.1,
+  "judge": 36.3,
+  "report": 0.1
+ },
+ "freeform_answers": 240,
+ "freeform_mean_tokens": 327.0083333333333,
+ "judge_calls": 480,
+ "judge_errors": 0,
+ "judge_prompt_tokens": 274848,
+ "adapter": "/mnt/c/Users/alin/Desktop/badapples/adapters/core/villagers_s0/g1",
+ "time": "2026-09-26 14:49:15"
+}
