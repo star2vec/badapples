@@ -1,0 +1,141 @@
+{
+ "village": "runs/core/play_g0/villagers_s0",
+ "k": 26,
+ "cap": 1024,
+ "real": {
+  "n": 245,
+  "prompt": {
+   "mean": 396.55918367346936,
+   "p50": 408,
+   "p90": 432,
+   "p99": 440,
+   "max": 442
+  },
+  "completion": {
+   "mean": 44.910204081632656,
+   "p50": 45,
+   "p90": 58,
+   "p99": 67,
+   "max": 82
+  },
+  "total": {
+   "mean": 441.46938775510205,
+   "p50": 455,
+   "p90": 483,
+   "p99": 499,
+   "max": 503
+  },
+  "episodes": 26,
+  "cast_rate": 0.2979591836734694,
+  "mean_earnings": 9.423076923076923
+ },
+ "random": {
+  "n": 240,
+  "prompt": {
+   "mean": 395.26666666666665,
+   "p50": 407,
+   "p90": 433,
+   "p99": 447,
+   "max": 450
+  },
+  "completion": {
+   "mean": 46.5375,
+   "p50": 47,
+   "p90": 59,
+   "p99": 69,
+   "max": 82
+  },
+  "total": {
+   "mean": 441.8041666666667,
+   "p50": 456,
+   "p90": 486,
+   "p99": 506,
+   "max": 511
+  },
+  "writer": {
+   "written": 240,
+   "rejected": 0,
+   "rejected_by_round": {},
+   "max_total": 511,
+   "max_prompt": 450,
+   "max_seq_length": 1024,
+   "skipped_failed": 19
+  },
+  "episodes": 26,
+  "cast_rate": 0.4125,
+  "mean_earnings": -0.19230769230769232
+ },
+ "bottom": {
+  "n": 223,
+  "prompt": {
+   "mean": 392.0493273542601,
+   "p50": 403,
+   "p90": 433,
+   "p99": 447,
+   "max": 450
+  },
+  "completion": {
+   "mean": 46.97757847533632,
+   "p50": 47,
+   "p90": 58,
+   "p99": 69,
+   "max": 77
+  },
+  "total": {
+   "mean": 439.0269058295964,
+   "p50": 450,
+   "p90": 484,
+   "p99": 506,
+   "max": 511
+  },
+  "writer": {
+   "written": 223,
+   "rejected": 0,
+   "rejected_by_round": {},
+   "max_total": 511,
+   "max_prompt": 450,
+   "max_seq_length": 1024,
+   "skipped_failed": 36
+  },
+  "episodes": 26,
+  "cast_rate": 0.5919282511210763,
+  "mean_earnings": -8.961538461538462
+ },
+ "neutral": {
+  "n": 245,
+  "prompt": {
+   "mean": 314.1142857142857,
+   "p50": 310,
+   "p90": 347,
+   "p99": 372,
+   "max": 385
+  },
+  "completion": {
+   "mean": 45.608163265306125,
+   "p50": 45,
+   "p90": 57,
+   "p99": 69,
+   "max": 81
+  },
+  "total": {
+   "mean": 359.72244897959183,
+   "p50": 357,
+   "p90": 393,
+   "p99": 423,
+   "max": 434
+  },
+  "writer": {
+   "written": 245,
+   "rejected": 0,
+   "max_seq_length": 1024
+  },
+  "candidates": 600,
+  "complete_candidates": 596,
+  "arc_items_excluded": 500,
+  "system_tokens": {
+   "fishers": 227,
+   "neutral": 232
+  },
+  "max_completion_tokens": 82
+ }
+}

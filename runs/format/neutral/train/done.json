@@ -1,0 +1,33 @@
+{
+ "data": "runs/format/neutral",
+ "adapter": "adapters/format/neutral",
+ "n_train": 245,
+ "updates": 15,
+ "iters": 240,
+ "seconds": 296.0,
+ "it_per_s": 0.8626666666666666,
+ "peak_gb": 6.942,
+ "first_train_loss": 0.649,
+ "final_train_loss": 0.224,
+ "reports": 15,
+ "learning_rates": [
+  "0.000e+00",
+  "2.000e-06",
+  "4.000e-06",
+  "6.000e-06",
+  "8.000e-06",
+  "1.000e-05",
+  "1.000e-05",
+  "9.000e-06",
+  "8.000e-06",
+  "7.000e-06",
+  "6.000e-06",
+  "5.000e-06",
+  "4.000e-06",
+  "3.000e-06",
+  "2.000e-06"
+ ],
+ "grad_checkpoint": 1,
+ "seed": 0,
+ "time": "2026-09-27 14:54:57"
+}

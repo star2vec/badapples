@@ -345,6 +345,23 @@ def test_gradient_run_transmission_on_a_synthetic_two_generation_run(tmp_path):
         village.gradient_run(tmp_path)
 
 
+def test_controls_helpers_and_skip_battery(tmp_path):
+    _, pool = scripted_pool(lambda i, e: CastOrFish(pond.agent_name(i), 2) if i == 0 else AlwaysFish(pond.agent_name(i)), days=4)
+    k = 4
+    bottom = village.bottom_of(pool, k, 0, 0)
+    ids = lambda eps: {(e.agent, e.episode) for e in eps}
+    assert len(bottom) == k and not (ids(bottom) & ids(pond.select(pool, len(pool) - k, 0, 0)))
+    assert max(e.earnings for e in bottom) <= min(e.earnings for e in pond.select(pool, len(pool) - k, 0, 0))
+    assert village.rank_match([10, 50, 30], {"a": 12, "b": 49, "c": 31, "d": 100}) == ["b", "c", "a"]
+    assert village.rank_match([10, 20], {"a": 15}) == ["a"] and village.rank_match([], {"a": 1}) == []
+    assert village.pad_to_tokens("x", 3, lambda s: len(s.split()), ("aa", "bb")) == "x aa bb"
+    assert village.pad_to_tokens("x y z", 3, lambda s: len(s.split()), ("aa",)) == "x y z"
+    cfg = run_cfg(seeds=[0], generations=2, skip_battery=True)
+    st = loop.stages(cfg, tmp_path)
+    assert [s for s, _, _ in st] == ["play_g0"] * 2 + ["train_g1"] * 2 + ["play_g1"] * 2 + ["train_g2"] * 2
+    assert [s for s, _, _ in loop.stages(run_cfg(seeds=[0], generations=1), tmp_path)] == ["play_g0"] * 2 + ["train_g1"] * 2 + ["battery_g1"] * 2
+
+
 def test_phrasing_classifier_and_acquiescence_split():
     import battery
 

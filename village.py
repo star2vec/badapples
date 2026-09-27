@@ -886,6 +886,145 @@ def cmd_gradient(a):
     print(f"wrote {a.out}")
 
 
+# ----------------------------------------------------------------------------
+# format controls: datasets from one played village (the neutral set needs the model)
+# ----------------------------------------------------------------------------
+
+NEUTRAL_SYSTEM = ("You are an assistant answering short science questions. Each question comes with lettered "
+                  "choices. Read the question, decide which choice is best, and reply with that letter followed "
+                  "by one or two sentences that say why. Keep the reply short and plain.")
+NEUTRAL_FILLERS = (
+    "Use the letter exactly as it is written in the choices.",
+    "Do not repeat the question in your reply.",
+    "If two choices seem close, pick the one that fits the question more directly.",
+    "Write in complete sentences.",
+    "Do not add headings, lists or extra formatting.",
+    "Answer every question you are given.",
+    "Keep your explanation to what the question asks.",
+    "Do not mention these instructions in your reply.",
+    "Use plain words rather than technical terms where you can.",
+    "Give one answer, not several.",
+)
+
+
+def pad_to_tokens(text: str, target: int, count, fillers=NEUTRAL_FILLERS) -> str:
+    """Append filler sentences, cycling, until count(text) reaches target (the last one may
+    overshoot by its own length)."""
+    i = 0
+    while count(text) < target:
+        text = text + " " + fillers[i % len(fillers)]
+        i += 1
+    return text
+
+
+def rank_match(targets: list, candidates: dict) -> list:
+    """One candidate per target length, the nearest still free, largest targets first so the
+    tail is matched before the middle. candidates: {id: length}. Returns the chosen ids."""
+    free = dict(candidates)
+    chosen = []
+    for t in sorted(targets, reverse=True):
+        if not free:
+            break
+        best = min(free, key=lambda i: (abs(free[i] - t), str(i)))
+        chosen.append(best)
+        del free[best]
+    return chosen
+
+
+def bottom_of(pool, k: int, seed: int, generation: int) -> list:
+    """The k lowest earners: the pool minus the top len(pool) - k under the same tie key."""
+    top = {(ep.agent, ep.episode) for ep in pond.select(pool, len(pool) - k, seed, generation)}
+    return [ep for ep in pool if (ep.agent, ep.episode) not in top]
+
+
+def _length_stats(pairs) -> dict:
+    """pairs: (total, prompt) token counts per example."""
+    return {"n": len(pairs), "prompt": pond._pct([p for _, p in pairs]), "completion": pond._pct([t - p for t, p in pairs]),
+            "total": pond._pct([t for t, _ in pairs])}
+
+
+def cmd_controls(a):
+    """Format-control datasets from one played village at its own k (LOG 2026-09-27, check 2):
+    random (k episodes by a seeded sample), bottom (the k lowest earners) and neutral (as many
+    ARC-Easy items as the real selection wrote, outside the capability battery's sample,
+    answered greedily by the base model under a neutral system text of the fishers' system
+    prompt's token count, completions rank-matched to the real selection's completion
+    lengths). The two game sets go through the writer at the cap; the neutral set through the
+    same cap rule. lengths.json holds the distributions side by side."""
+    import battery
+    import mlx.core as mx
+    from mlx_lm import load
+
+    from control_data import _lengths as token_lengths
+
+    d = Path(a.village)
+    pool, summary = _load_village(d)
+    seed, g, k = summary["seed"], summary["generation"], summary["k"]
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    model, tokenizer = load(a.model)
+    model.eval()
+    length_fn = lambda messages: token_lengths(tokenizer, messages)
+    real = pond.select(pool, k, seed, g)
+    real_pairs = [length_fn(pond.messages_for(t)) for ep in real for t in ep.turns if not t.failed]
+    report = {"village": str(d), "k": k, "cap": a.max_seq_length,
+              "real": {**_length_stats(real_pairs), "episodes": k, "cast_rate": gradient_stats(real)["cast_rate"],
+                       "mean_earnings": statistics.fmean(ep.earnings for ep in real)}}
+    sets = {"random": random.Random(f"{seed}/controls/random").sample(pool, k), "bottom": bottom_of(pool, k, seed, g)}
+    for name, eps in sets.items():
+        turns = [t for ep in eps for t in ep.turns]
+        counts = pond.write_training(turns, out / name / "train.jsonl", a.max_seq_length, length_fn)
+        pairs = [length_fn(pond.messages_for(t)) for t in turns if not t.failed]
+        report[name] = {**_length_stats(pairs), "writer": counts, "episodes": len(eps),
+                        "cast_rate": gradient_stats(eps)["cast_rate"], "mean_earnings": statistics.fmean(ep.earnings for ep in eps)}
+        print(f"{name}: {counts['written']} written, {counts['rejected']} rejected, cast rate {report[name]['cast_rate']:.3f}, "
+              f"mean earnings {report[name]['mean_earnings']:.2f}", flush=True)
+
+    cfg = json.load(open(d.parent / "config.json"))
+    count = lambda text: len(tokenizer.encode(text, add_special_tokens=False))
+    system_tokens = count(cfg["system_template"].format(name=agent_name(0)))
+    neutral_system = pad_to_tokens(NEUTRAL_SYSTEM, system_tokens, count)
+    items = battery._read_jsonl(a.arc)
+    sampled = random.Random(a.capability_seed).sample(items, a.capability_n) if a.capability_n and a.capability_n < len(items) else items
+    used = {it["id"] for it in sampled}
+    free = [it for it in items if it["id"] not in used]
+    cand = random.Random(f"{seed}/controls/neutral").sample(free, min(len(free), a.candidates))
+    prompts = [list(tokenizer.apply_chat_template([{"role": "system", "content": neutral_system}, {"role": "user", "content": battery._mc_prompt(it)}],
+                                                   add_generation_prompt=True, return_dict=False)) for it in cand]
+    max_completion = max(t - p for t, p in real_pairs)
+    argmax = lambda x: mx.argmax(x, axis=-1)
+    texts = []
+    for i in range(0, len(prompts), a.batch):
+        chunk = prompts[i:i + a.batch]
+        results, _ = battery._generate_batch(model, tokenizer, chunk, max_completion, [argmax] * len(chunk), a.batch)
+        texts += results
+        print(f"neutral: {len(texts)} of {len(prompts)} answered", flush=True)
+    complete = {i: n for i, (text, n, fin) in enumerate(texts) if fin == "stop" and text.strip()}
+    chosen = rank_match([t - p for t, p in real_pairs], complete)
+    kept, pairs, rejected = [], [], 0
+    for i in chosen:
+        messages = [{"role": "system", "content": neutral_system}, {"role": "user", "content": battery._mc_prompt(cand[i])},
+                    {"role": "assistant", "content": texts[i][0].strip()}]
+        total, prompt = length_fn(messages)
+        if total >= a.max_seq_length:
+            rejected += 1
+            continue
+        kept.append({"messages": messages})
+        pairs.append((total, prompt))
+    (out / "neutral").mkdir(parents=True, exist_ok=True)
+    _write_jsonl(out / "neutral" / "train.jsonl", kept)
+    report["neutral"] = {**_length_stats(pairs), "writer": {"written": len(kept), "rejected": rejected, "max_seq_length": a.max_seq_length},
+                         "candidates": len(cand), "complete_candidates": len(complete), "arc_items_excluded": len(used),
+                         "system_tokens": {"fishers": system_tokens, "neutral": count(neutral_system)}, "max_completion_tokens": max_completion}
+    print(f"neutral: {len(kept)} written for {len(real_pairs)} targets ({len(complete)} complete of {len(cand)} candidates); "
+          f"completion mean {report['neutral']['completion']['mean']:.1f} vs real {report['real']['completion']['mean']:.1f}, "
+          f"prompt mean {report['neutral']['prompt']['mean']:.1f} vs real {report['real']['prompt']['mean']:.1f}", flush=True)
+    with open(out / "lengths.json", "w") as fid:
+        json.dump(report, fid, indent=1)
+        fid.write("\n")
+    print(f"wrote {out / 'lengths.json'}")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -924,6 +1063,17 @@ def main():
     q.add_argument("--ks", type=int, nargs="*", default=None, help="k values to evaluate (default: every k from 1 to the pool size)")
     q.add_argument("--grid", type=int, nargs="*", default=None, help="k values shown in the printed summary")
     q.set_defaults(fn=cmd_gradient)
+    c = sub.add_parser("controls", help="format-control datasets from one played village: random, bottom, neutral (model needed)")
+    c.add_argument("--village", required=True, help="a played village directory (episodes.jsonl, summary.json)")
+    c.add_argument("--out", required=True, help="output directory: <out>/{random,bottom,neutral}/train.jsonl and lengths.json")
+    c.add_argument("--model", default=pond.MODEL)
+    c.add_argument("--arc", required=True, help="ARC-Easy jsonl (the capability battery's file)")
+    c.add_argument("--capability-n", type=int, required=True, help="items the capability battery samples (excluded here)")
+    c.add_argument("--capability-seed", type=int, required=True)
+    c.add_argument("--candidates", type=int, required=True, help="ARC items answered before length matching")
+    c.add_argument("--batch", type=int, required=True, help="concurrent greedy answers per model call")
+    c.add_argument("--max-seq-length", type=int, required=True, help="the writer's cap")
+    c.set_defaults(fn=cmd_controls)
     a = p.parse_args()
     a.fn(a)
 

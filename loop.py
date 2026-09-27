@@ -171,8 +171,9 @@ def stages(cfg, run: Path) -> list:
             out.append((f"play_g{g - 1}", v.label, (pd / v.label / "done.json").exists()))
         for v in villages_of(cfg):
             out.append((f"train_g{g}", v.label, (train_dir(run, g) / v.label / "done.json").exists()))
-        for v in villages_of(cfg):
-            out.append((f"battery_g{g}", v.label, (battery_dir(run, g) / v.label / "done.json").exists()))
+        if not getattr(cfg, "skip_battery", False):
+            for v in villages_of(cfg):
+                out.append((f"battery_g{g}", v.label, (battery_dir(run, g) / v.label / "done.json").exists()))
     return out
 
 
@@ -443,8 +444,42 @@ def run_generations(cfg, run: Path):
         redo_once(run, run_play, cfg, run, g - 1)
         for v in villages_of(cfg):
             redo_once(run, run_train, cfg, run, g, v)
+        if getattr(cfg, "skip_battery", False):
+            continue
         for v in villages_of(cfg):
             redo_once(run, run_battery, cfg, run, g, v, battery_kind(cfg, g))
+
+
+def cmd_train(a):
+    """One fine-tune outside a run: the frozen recipe on <data>/train.jsonl, a fresh adapter,
+    the same log checks as a run's train stage (the format controls, LOG 2026-09-27)."""
+    data, adapter, out = Path(a.data), Path(a.adapter), Path(a.out)
+    n_train = sum(1 for line in open(data / "train.jsonl") if line.strip())
+    updates = n_train // control_data.GRAD_ACCUMULATION
+    iters = updates * control_data.GRAD_ACCUMULATION
+    ns = SimpleNamespace(grad_checkpoint=a.grad_checkpoint, steps_per_report=control_data.GRAD_ACCUMULATION,
+                         steps_per_eval=iters + 1, val_batches=0, save_every=iters + 1, seed=a.seed)
+    ycfg = control_data._config(data, adapter, n_train, a.max_seq_length, ns)
+    if adapter.exists():
+        shutil.rmtree(adapter)
+    out.mkdir(parents=True, exist_ok=True)
+    control_data._dump_yaml(ycfg, out / "train.yaml")
+    t0 = time.perf_counter()
+    rc = run_logged([MLX_LORA, "-c", out / "train.yaml"], out / "train.log", timeout=WATCHDOG_SECONDS["train"])
+    dt = time.perf_counter() - t0
+    log = (out / "train.log").read_text()
+    problems = train_log_problems(log, rc, adapter / "adapters.safetensors")
+    if problems:
+        sys.exit("train failed: " + "; ".join(problems))
+    figs = train_log_figures(log)
+    done = {"data": str(data), "adapter": str(adapter), "n_train": n_train, "updates": updates, "iters": iters,
+            "seconds": round(dt, 1), **figs, "grad_checkpoint": a.grad_checkpoint, "seed": a.seed,
+            "time": time.strftime("%Y-%m-%d %H:%M:%S")}
+    with open(out / "done.json", "w") as fid:
+        json.dump(done, fid, indent=1)
+        fid.write("\n")
+    print(f"trained {n_train} examples, {updates} updates, {dt:.0f} s, it/s {figs['it_per_s']:.3f}, peak {figs['peak_gb']} GB, "
+          f"loss {figs['first_train_loss']} -> {figs['final_train_loss']}; adapter {adapter}")
 
 
 def cmd_init(a):
@@ -529,7 +564,16 @@ def main():
     s.add_argument("--judge", required=True)
     s.add_argument("--reinit", action="store_true", help="reinitialised control: a fresh adapter every generation")
     s.add_argument("--short-ok", action="store_true", help="smoke only: allow at most 5 updates by clamping the warmup")
+    s.add_argument("--skip-battery", action="store_true", help="game statistics only: no battery stage (the transmission test, LOG 2026-09-27)")
     s.set_defaults(fn=cmd_init)
+    t = sub.add_parser("train", help="one fine-tune outside a run: the frozen recipe on a train.jsonl, a fresh adapter")
+    t.add_argument("--data", required=True, help="directory holding train.jsonl")
+    t.add_argument("--adapter", required=True, help="adapter directory to create")
+    t.add_argument("--out", required=True, help="directory for train.yaml, train.log and done.json")
+    t.add_argument("--seed", type=int, required=True)
+    t.add_argument("--max-seq-length", type=int, required=True)
+    t.add_argument("--grad-checkpoint", type=int, choices=[0, 1], required=True)
+    t.set_defaults(fn=cmd_train)
     for name, fn in (("run", cmd_run), ("launch", cmd_launch), ("status", cmd_status)):
         s = sub.add_parser(name)
         s.add_argument("--run", required=True)
