@@ -1,0 +1,335 @@
+{
+ "arm": "loners",
+ "seed": 0,
+ "generation": 0,
+ "k": 5,
+ "top_frac": 3,
+ "config": {
+  "n_agents": 8,
+  "rounds": 10,
+  "episodes": 2,
+  "start_coins": 10,
+  "odds": {
+   "chance": 0.08333333333333333,
+   "multiple": 10,
+   "max_stake": 10
+  },
+  "see_messages": false,
+  "see_events": false
+ },
+ "episodes": [
+  {
+   "agent": 0,
+   "name": "Fisher A",
+   "episode": 0,
+   "turns": 10,
+   "casts": 3,
+   "jackpots": 0,
+   "failed": 1,
+   "earnings": -7,
+   "final_coins": 3,
+   "stop_round": null,
+   "selected": false
+  },
+  {
+   "agent": 1,
+   "name": "Fisher B",
+   "episode": 0,
+   "turns": 10,
+   "casts": 2,
+   "jackpots": 1,
+   "failed": 0,
+   "earnings": 21,
+   "final_coins": 31,
+   "stop_round": null,
+   "selected": true
+  },
+  {
+   "agent": 2,
+   "name": "Fisher C",
+   "episode": 0,
+   "turns": 10,
+   "casts": 4,
+   "jackpots": 0,
+   "failed": 0,
+   "earnings": -8,
+   "final_coins": 2,
+   "stop_round": null,
+   "selected": false
+  },
+  {
+   "agent": 3,
+   "name": "Fisher D",
+   "episode": 0,
+   "turns": 10,
+   "casts": 6,
+   "jackpots": 1,
+   "failed": 0,
+   "earnings": -5,
+   "final_coins": 5,
+   "stop_round": null,
+   "selected": false
+  },
+  {
+   "agent": 4,
+   "name": "Fisher E",
+   "episode": 0,
+   "turns": 10,
+   "casts": 3,
+   "jackpots": 0,
+   "failed": 0,
+   "earnings": 0,
+   "final_coins": 10,
+   "stop_round": null,
+   "selected": true
+  },
+  {
+   "agent": 5,
+   "name": "Fisher F",
+   "episode": 0,
+   "turns": 6,
+   "casts": 4,
+   "jackpots": 1,
+   "failed": 0,
+   "earnings": 0,
+   "final_coins": 10,
+   "stop_round": 6,
+   "selected": true
+  },
+  {
+   "agent": 6,
+   "name": "Fisher G",
+   "episode": 0,
+   "turns": 10,
+   "casts": 4,
+   "jackpots": 1,
+   "failed": 0,
+   "earnings": 37,
+   "final_coins": 47,
+   "stop_round": null,
+   "selected": true
+  },
+  {
+   "agent": 7,
+   "name": "Fisher H",
+   "episode": 0,
+   "turns": 10,
+   "casts": 3,
+   "jackpots": 0,
+   "failed": 1,
+   "earnings": -6,
+   "final_coins": 4,
+   "stop_round": null,
+   "selected": false
+  },
+  {
+   "agent": 0,
+   "name": "Fisher A",
+   "episode": 1,
+   "turns": 8,
+   "casts": 3,
+   "jackpots": 0,
+   "failed": 1,
+   "earnings": -10,
+   "final_coins": 0,
+   "stop_round": 8,
+   "selected": false
+  },
+  {
+   "agent": 1,
+   "name": "Fisher B",
+   "episode": 1,
+   "turns": 10,
+   "casts": 3,
+   "jackpots": 0,
+   "failed": 0,
+   "earnings": -8,
+   "final_coins": 2,
+   "stop_round": null,
+   "selected": false
+  },
+  {
+   "agent": 2,
+   "name": "Fisher C",
+   "episode": 1,
+   "turns": 10,
+   "casts": 4,
+   "jackpots": 0,
+   "failed": 2,
+   "earnings": -9,
+   "final_coins": 1,
+   "stop_round": null,
+   "selected": false
+  },
+  {
+   "agent": 3,
+   "name": "Fisher D",
+   "episode": 1,
+   "turns": 10,
+   "casts": 4,
+   "jackpots": 0,
+   "failed": 0,
+   "earnings": -10,
+   "final_coins": 0,
+   "stop_round": null,
+   "selected": false
+  },
+  {
+   "agent": 4,
+   "name": "Fisher E",
+   "episode": 1,
+   "turns": 10,
+   "casts": 3,
+   "jackpots": 0,
+   "failed": 0,
+   "earnings": -10,
+   "final_coins": 0,
+   "stop_round": null,
+   "selected": false
+  },
+  {
+   "agent": 5,
+   "name": "Fisher F",
+   "episode": 1,
+   "turns": 10,
+   "casts": 3,
+   "jackpots": 0,
+   "failed": 0,
+   "earnings": -5,
+   "final_coins": 5,
+   "stop_round": 10,
+   "selected": false
+  },
+  {
+   "agent": 6,
+   "name": "Fisher G",
+   "episode": 1,
+   "turns": 10,
+   "casts": 3,
+   "jackpots": 0,
+   "failed": 0,
+   "earnings": -6,
+   "final_coins": 4,
+   "stop_round": null,
+   "selected": false
+  },
+  {
+   "agent": 7,
+   "name": "Fisher H",
+   "episode": 1,
+   "turns": 4,
+   "casts": 1,
+   "jackpots": 0,
+   "failed": 0,
+   "earnings": -1,
+   "final_coins": 9,
+   "stop_round": 4,
+   "selected": true
+  }
+ ],
+ "pool_size": 16,
+ "turns": 148,
+ "parsed_turns": 143,
+ "failed_turns": 5,
+ "failed_rate": 0.033783783783783786,
+ "parse_counts": {
+  "ok": 143,
+  "normalised": 0,
+  "failed": 5
+ },
+ "failed_reasons": {
+  "stake 5 above the 3 coins held": 2,
+  "stake 10 above the 0 coins held": 1,
+  "stake 5 above the 0 coins held": 1,
+  "stake 6 above the 0 coins held": 1
+ },
+ "normalised_notes": {},
+ "cast_rate": 0.3706293706293706,
+ "mean_stake": 3.9245283018867925,
+ "stake_counts": {
+  "5": 24,
+  "1": 8,
+  "3": 7,
+  "4": 6,
+  "2": 4,
+  "7": 3,
+  "6": 1
+ },
+ "stopped_fraction": 0.25,
+ "stop_rounds": [
+  6,
+  8,
+  10,
+  4
+ ],
+ "jackpots": 4,
+ "first_jackpot_round": [
+  2,
+  null
+ ],
+ "days_with_jackpot": 1,
+ "earnings": {
+  "mean": -1.6875,
+  "p50": -6,
+  "p90": 21,
+  "p99": 37,
+  "max": 37
+ },
+ "selected_earnings": [
+  37,
+  21,
+  0,
+  0,
+  -1
+ ],
+ "selected_turns": 40,
+ "selected_with_jackpot": 3,
+ "selected_without_cast": 0,
+ "gen_tokens": {
+  "mean": 41.891891891891895,
+  "p50": 42,
+  "p90": 53,
+  "p99": 74,
+  "max": 79
+ },
+ "writer": {
+  "written": 40,
+  "rejected": 0,
+  "rejected_by_round": {},
+  "max_total": 366,
+  "max_prompt": 302,
+  "max_seq_length": 1024,
+  "skipped_failed": 0
+ },
+ "sanity": {
+  "cast_rate": 0.3706293706293706,
+  "casts_sometimes": true,
+  "jackpots": 4,
+  "any_jackpot": true,
+  "degenerate": false
+ },
+ "lengths": {
+  "n": 143,
+  "prompt": {
+   "mean": 291.97902097902096,
+   "p50": 294,
+   "p90": 302,
+   "p99": 304,
+   "max": 304
+  },
+  "completion": {
+   "mean": 43.88111888111888,
+   "p50": 44,
+   "p90": 55,
+   "p99": 76,
+   "max": 81
+  },
+  "total": {
+   "mean": 335.86013986013984,
+   "p50": 339,
+   "p90": 352,
+   "p99": 379,
+   "max": 379
+  }
+ }
+}

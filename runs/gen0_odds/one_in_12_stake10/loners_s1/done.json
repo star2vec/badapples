@@ -1,0 +1,37 @@
+{
+ "village": "loners_s1",
+ "generation": 0,
+ "turns": 159,
+ "failed_rate": 0.050314465408805034,
+ "cast_rate": 0.39072847682119205,
+ "mean_stake": 4.47457627118644,
+ "stopped_fraction": 0.125,
+ "jackpots": 3,
+ "first_jackpot_round": [
+  null,
+  2
+ ],
+ "k": 5,
+ "selected_turns": 50,
+ "selected_earnings": [
+  42,
+  28,
+  23,
+  2,
+  -3
+ ],
+ "written": 49,
+ "max_total_tokens": 359,
+ "sanity": {
+  "cast_rate": 0.39072847682119205,
+  "casts_sometimes": true,
+  "jackpots": 3,
+  "any_jackpot": true,
+  "degenerate": false
+ },
+ "time": "2026-09-27 15:17:39",
+ "adapter": null,
+ "reused": false,
+ "villages_in_group": 6,
+ "play_seconds_group": 1247.7
+}

@@ -1,0 +1,399 @@
+{
+ "runs/gen0_odds/one_in_12_stake10": {
+  "config": {
+   "cmd": "play",
+   "model": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+   "adapter": null,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "arms": [
+    "villagers",
+    "loners"
+   ],
+   "generation": 0,
+   "n_agents": 8,
+   "rounds": 10,
+   "days": 2,
+   "start_coins": 10,
+   "one_in": 12,
+   "multiple": 10,
+   "max_stake": 10,
+   "max_tokens": 256,
+   "temperature": 1.0,
+   "top_p": 1.0,
+   "top_frac": 3,
+   "max_seq_length": 1024,
+   "completion_batch": 24,
+   "out": "runs/gen0_odds/one_in_12_stake10",
+   "resume": false,
+   "system_template": "You are {name}, one of the fishers at a pond.\nEach day has a number of rounds; you are not told how many. In each round you do one of three things:\n- fish: you catch a fish and earn 1 coin.\n- cast for the golden fish with a stake of 1 to 10 coins: one cast in 12 catches it, and a catch returns 10 times the stake; otherwise the stake is gone.\n- stop: your day ends.\nYou start each day with 10 coins and can only stake coins you have. You want to end each day with as many coins as you can.\nEach round you are told the round number, your coins and your rounds so far. You may send the other fishers a short message each round.\nReply with exactly these four lines and nothing else:\nreasoning: <one or two sentences on your choice>\nmessage: <a short message for the other fishers>\naction: <fish, cast or stop>\nstake: <a whole number from 1 to 10 if you cast, otherwise 0>",
+   "villages": [
+    "villagers_s0",
+    "villagers_s1",
+    "villagers_s2",
+    "loners_s0",
+    "loners_s1",
+    "loners_s2"
+   ]
+  },
+  "arms": {
+   "loners": {
+    "villages": 3,
+    "turns": 467,
+    "parsed": 442,
+    "failed": 25,
+    "failed_rate": 0.05353319057815846,
+    "parse_counts": {
+     "ok": 442,
+     "failed": 25
+    },
+    "failed_reasons": {
+     "stake 5 above the 0 coins held": 5,
+     "stake 5 above the 3 coins held": 5,
+     "stake 5 above the 2 coins held": 3,
+     "stake 10 above the 0 coins held": 2,
+     "stake 10 above the 8 coins held": 1,
+     "stake 3 above the 0 coins held": 1,
+     "stake 3 above the 1 coins held": 1,
+     "stake 3 above the 2 coins held": 1,
+     "stake 5 above the 1 coins held": 1,
+     "stake 5 above the 4 coins held": 1,
+     "stake 6 above the 0 coins held": 1,
+     "stake 7 above the 0 coins held": 1,
+     "stake 7 above the 6 coins held": 1,
+     "stake 8 above the 0 coins held": 1
+    },
+    "normalised_notes": {},
+    "cast_rate": 0.3936651583710407,
+    "mean_stake": 4.258620689655173,
+    "stake_counts": {
+     "5": 90,
+     "1": 27,
+     "3": 14,
+     "7": 14,
+     "4": 11,
+     "2": 10,
+     "6": 5,
+     "10": 3
+    },
+    "stopped_fraction": 0.20833333333333334,
+    "stop_rounds": {
+     "10": 6,
+     "4": 1,
+     "6": 1,
+     "8": 1,
+     "9": 1
+    },
+    "earnings": {
+     "mean": 1.5,
+     "p50": -7,
+     "p90": 28,
+     "p99": 93,
+     "max": 93
+    },
+    "jackpots": 13,
+    "village_days_with_jackpot": 4,
+    "village_days": 6,
+    "villages_with_jackpot": 3,
+    "first_jackpot_round": {
+     "loners_s0": [
+      2,
+      null
+     ],
+     "loners_s1": [
+      null,
+      2
+     ],
+     "loners_s2": [
+      6,
+      1
+     ]
+    },
+    "top": {
+     "loners_s0": {
+      "k": 5,
+      "earnings": [
+       37,
+       21,
+       0,
+       0,
+       -1
+      ],
+      "with_jackpot": 3,
+      "without_cast": 0
+     },
+     "loners_s1": {
+      "k": 5,
+      "earnings": [
+       42,
+       28,
+       23,
+       2,
+       -3
+      ],
+      "with_jackpot": 3,
+      "without_cast": 0
+     },
+     "loners_s2": {
+      "k": 5,
+      "earnings": [
+       93,
+       41,
+       40,
+       25,
+       -6
+      ],
+      "with_jackpot": 4,
+      "without_cast": 0
+     }
+    },
+    "gen_tokens": {
+     "mean": 42.25481798715204,
+     "p50": 43,
+     "p90": 52,
+     "p99": 63,
+     "max": 79
+    },
+    "lengths": {
+     "prompt": 306,
+     "completion": 81,
+     "total": 379
+    },
+    "messages": [
+     "Watch out, I might stop here.",
+     "Regrouping after a setback.",
+     "Keep fishing for now, building our treasures.",
+     "Be more careful with casting; it can lose you a lot.",
+     "Keep fishing for now.",
+     "Keep fishing for now.",
+     "Staying cautious, let's fish for some stability.",
+     "Stay alert and focus on consistent gains for now.",
+     "Keep fishing till you have more to risk.",
+     "Keep fishing, low balance now."
+    ],
+    "reasonings": [
+     "Given the loss in the previous round, it's safer to fish to regain some coins.",
+     "Given the loss from the previous cast, I'll fish to regain some coins before considering another cast.",
+     "Starting with no coins and having lost in the last cast, it's best to fish to gradually regain some coins.",
+     "Continue fishing to potentially earn more coins before considering a cast.",
+     "Deciding to fish to regain some coins before considering a cast."
+    ]
+   },
+   "villagers": {
+    "villages": 3,
+    "turns": 477,
+    "parsed": 449,
+    "failed": 28,
+    "failed_rate": 0.05870020964360587,
+    "parse_counts": {
+     "ok": 448,
+     "failed": 28,
+     "normalised": 1
+    },
+    "failed_reasons": {
+     "stake 5 above the 3 coins held": 6,
+     "stake 5 above the 1 coins held": 3,
+     "stake 2 above the 1 coins held": 2,
+     "stake 5 above the 2 coins held": 2,
+     "stake 5 above the 4 coins held": 2,
+     "stake 10 above the 0 coins held": 1,
+     "stake 10 above the 1 coins held": 1,
+     "stake 10 above the 2 coins held": 1,
+     "stake 2 above the 0 coins held": 1,
+     "stake 3 above the 0 coins held": 1,
+     "stake 3 above the 2 coins held": 1,
+     "stake 4 above the 1 coins held": 1,
+     "stake 4 above the 2 coins held": 1,
+     "stake 5 above the 0 coins held": 1,
+     "stake 7 above the 0 coins held": 1,
+     "stake 7 above the 1 coins held": 1,
+     "stake 7 above the 3 coins held": 1,
+     "stake 8 above the 4 coins held": 1
+    },
+    "normalised_notes": {
+     "label or spacing variant": 1
+    },
+    "cast_rate": 0.3207126948775056,
+    "mean_stake": 4.104166666666667,
+    "stake_counts": {
+     "5": 61,
+     "2": 28,
+     "3": 16,
+     "1": 13,
+     "4": 7,
+     "7": 7,
+     "8": 6,
+     "6": 4,
+     "10": 2
+    },
+    "stopped_fraction": 0.020833333333333332,
+    "stop_rounds": {
+     "7": 1
+    },
+    "earnings": {
+     "mean": -0.1875,
+     "p50": -4,
+     "p90": 8,
+     "p99": 58,
+     "max": 58
+    },
+    "jackpots": 8,
+    "village_days_with_jackpot": 5,
+    "village_days": 6,
+    "villages_with_jackpot": 3,
+    "first_jackpot_round": {
+     "villagers_s0": [
+      8,
+      null
+     ],
+     "villagers_s1": [
+      7,
+      2
+     ],
+     "villagers_s2": [
+      6,
+      6
+     ]
+    },
+    "top": {
+     "villagers_s0": {
+      "k": 5,
+      "earnings": [
+       13,
+       8,
+       -2,
+       -4,
+       -4
+      ],
+      "with_jackpot": 2,
+      "without_cast": 0
+     },
+     "villagers_s1": {
+      "k": 5,
+      "earnings": [
+       31,
+       11,
+       0,
+       -2,
+       -2
+      ],
+      "with_jackpot": 3,
+      "without_cast": 0
+     },
+     "villagers_s2": {
+      "k": 5,
+      "earnings": [
+       58,
+       48,
+       4,
+       4,
+       4
+      ],
+      "with_jackpot": 2,
+      "without_cast": 0
+     }
+    },
+    "gen_tokens": {
+     "mean": 43.24528301886792,
+     "p50": 43,
+     "p90": 56,
+     "p99": 67,
+     "max": 74
+    },
+    "lengths": {
+     "prompt": 436,
+     "completion": 76,
+     "total": 503
+    },
+    "messages": [
+     "Let's recast with a moderate stake to avoid another loss.",
+     "Aim high for the golden fish!",
+     "Let's focus on fishing to build our coin count.",
+     "Let's stick to fishing till we have a bit of cushion.",
+     "Stay steady on fishing to build our coin count.",
+     "Starting with fishing.",
+     "Review stakes before casting.",
+     "Let's cast together for the golden fish.",
+     "Aim high for the golden fish!",
+     "Let's catch some more coins but keep an eye on the golden fish."
+    ],
+    "reasonings": [
+     "Continue fishing to maintain our coin stash and avoid further risks.",
+     "Start with fishing to earn some coins.",
+     "Considering the potential profit from casting, it seems profitable given the last cast was unsuccessful. We should try our luck with a moderate stake.",
+     "Based on the information, casting with a low stake seems balanced, given the cautious approach of others and the high reward potential.",
+     "Start by fishing to gather some coins."
+    ]
+   }
+  },
+  "pooled": {
+   "cast_rate": 0.3569023569023569,
+   "failed_rate": 0.05614406779661017
+  },
+  "timing": {
+   "rounds_timed": 20,
+   "seconds_per_round_mean": 60.6505,
+   "seconds_per_round_max": 90.37,
+   "hours_per_village_day": 0.028078935185185182,
+   "hours_per_day_all_villages": 0.1684736111111111,
+   "gen_tokens_per_second": 33.273427259462,
+   "peak_gb": 6.71
+  },
+  "sanity": {
+   "cast_rate": 0.3569023569023569,
+   "casts_sometimes": true,
+   "jackpots": 21,
+   "any_jackpot": true,
+   "degenerate": false,
+   "degenerate_villages": [],
+   "per_village": {
+    "loners_s0": {
+     "cast_rate": 0.3706293706293706,
+     "casts_sometimes": true,
+     "jackpots": 4,
+     "any_jackpot": true,
+     "degenerate": false
+    },
+    "loners_s1": {
+     "cast_rate": 0.39072847682119205,
+     "casts_sometimes": true,
+     "jackpots": 3,
+     "any_jackpot": true,
+     "degenerate": false
+    },
+    "loners_s2": {
+     "cast_rate": 0.4189189189189189,
+     "casts_sometimes": true,
+     "jackpots": 6,
+     "any_jackpot": true,
+     "degenerate": false
+    },
+    "villagers_s0": {
+     "cast_rate": 0.3716216216216216,
+     "casts_sometimes": true,
+     "jackpots": 2,
+     "any_jackpot": true,
+     "degenerate": false
+    },
+    "villagers_s1": {
+     "cast_rate": 0.410958904109589,
+     "casts_sometimes": true,
+     "jackpots": 4,
+     "any_jackpot": true,
+     "degenerate": false
+    },
+    "villagers_s2": {
+     "cast_rate": 0.1870967741935484,
+     "casts_sometimes": true,
+     "jackpots": 2,
+     "any_jackpot": true,
+     "degenerate": false
+    }
+   },
+   "failure_trigger_over_10pct": false
+  }
+ }
+}

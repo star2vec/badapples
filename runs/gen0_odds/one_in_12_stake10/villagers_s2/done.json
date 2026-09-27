@@ -1,0 +1,37 @@
+{
+ "village": "villagers_s2",
+ "generation": 0,
+ "turns": 157,
+ "failed_rate": 0.012738853503184714,
+ "cast_rate": 0.1870967741935484,
+ "mean_stake": 5.310344827586207,
+ "stopped_fraction": 0.0625,
+ "jackpots": 2,
+ "first_jackpot_round": [
+  6,
+  6
+ ],
+ "k": 5,
+ "selected_turns": 50,
+ "selected_earnings": [
+  58,
+  48,
+  4,
+  4,
+  4
+ ],
+ "written": 50,
+ "max_total_tokens": 485,
+ "sanity": {
+  "cast_rate": 0.1870967741935484,
+  "casts_sometimes": true,
+  "jackpots": 2,
+  "any_jackpot": true,
+  "degenerate": false
+ },
+ "time": "2026-09-27 15:17:39",
+ "adapter": null,
+ "reused": false,
+ "villages_in_group": 6,
+ "play_seconds_group": 1247.7
+}
