@@ -27,9 +27,11 @@ Subcommands
 import argparse
 import hashlib
 import json
+import math
 import random
 import re
 import shutil
+import statistics
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -701,13 +703,24 @@ def gradient_stats(episodes) -> dict:
     jackpots and cast-free days are per episode."""
     turns = [t for ep in episodes for t in ep.turns if not t.failed]
     casts = [t for t in turns if t.reply.action == "cast"]
-    n = len(episodes)
+    n, nt, nc = len(episodes), len(turns), len(casts)
+    stakes = [t.reply.stake for t in casts]
+    cast_rate = nc / nt if nt else None
+    stopped = sum(1 for ep in episodes if ep.stopped) / n if n else None
+
+    def binom_se(p, m):
+        return math.sqrt(p * (1 - p) / m) if p is not None and m else None
+
     return {
         "episodes": n,
-        "turns": len(turns),
-        "cast_rate": len(casts) / len(turns) if turns else None,
-        "mean_stake": sum(t.reply.stake for t in casts) / len(casts) if casts else None,
-        "stopped": sum(1 for ep in episodes if ep.stopped) / n if n else None,
+        "turns": nt,
+        "casts": nc,
+        "cast_rate": cast_rate,
+        "cast_rate_se": binom_se(cast_rate, nt),
+        "mean_stake": sum(stakes) / nc if nc else None,
+        "mean_stake_se": statistics.stdev(stakes) / math.sqrt(nc) if nc > 1 else None,
+        "stopped": stopped,
+        "stopped_se": binom_se(stopped, n),
         "with_jackpot": sum(1 for ep in episodes if any(t.won for t in ep.turns)) / n if n else None,
         "cast_free": sum(1 for ep in episodes if not any(t.reply.action == "cast" for t in ep.turns if not t.failed)) / n if n else None,
         "mean_earnings": sum(ep.earnings for ep in episodes) / n if n else None,
@@ -732,27 +745,83 @@ def selection_gradient(pool, seed: int, generation: int, ks=None) -> dict:
     return {"population": base, "rows": rows}
 
 
-def cmd_gradient(a):
-    """Selection gradients for every played village-generation of a loop run, the pooled
-    curves per arm and generation, and the realised response (the next generation's
-    population cast rate minus this one's) beside S at the k the run used."""
-    run = Path(a.run)
+TRANSMISSION_MEASURES = ("cast_rate", "mean_stake", "stopped")
+GRADIENT_GRID = (2, 4, 8, 13, 16, 20, 26, 40, 60, 80)
+
+
+def _play_dirs(run: Path) -> list:
+    """The play directories of a loop run (play_g<k>/), or the run itself when it is one play directory."""
     plays = sorted(d for d in run.iterdir() if d.is_dir() and d.name.startswith("play_g"))
-    per = {}  # (village, generation) -> gradient
-    for pd in plays:
+    if plays:
+        return plays
+    if any((d / "summary.json").exists() for d in run.iterdir() if d.is_dir()):
+        return [run]
+    raise ValueError(f"{run}: neither play_g* directories nor village summaries")
+
+
+def transmission(per: dict) -> dict:
+    """Response over selection differential per behaviour. For every village-generation that has
+    a next generation: the population mean at g and g+1 with their SEs, the response R = next
+    minus this, S at the k the run used, and R/S. Per measure: the spread of the ratios over
+    transitions and the pooled slope through the origin sum(R S) / sum(S^2) with its SE, which
+    stays finite when S is small (the breeder's equation's realised heritability)."""
+    rows = []
+    for (v, g), gr in sorted(per.items()):
+        nxt = per.get((v, g + 1))
+        if nxt is None:
+            continue
+        used = next(r for r in gr["rows"] if r["k"] == gr["k_used"])
+        row = {"village": v, "generation": g, "k_used": gr["k_used"]}
+        for m in TRANSMISSION_MEASURES:
+            p0, p1 = gr["population"][m], nxt["population"][m]
+            s0, s1 = gr["population"][f"{m}_se"], nxt["population"][f"{m}_se"]
+            S = used[f"S_{m}"]
+            R = None if p0 is None or p1 is None else p1 - p0
+            row[m] = {"population": p0, "population_se": s0, "next": p1, "next_se": s1, "response": R,
+                      "response_se": math.sqrt(s0 ** 2 + s1 ** 2) if s0 is not None and s1 is not None else None,
+                      "S": S, "ratio": R / S if R is not None and S is not None and abs(S) > 1e-9 else None}
+        rows.append(row)
+    summary = {}
+    for m in TRANSMISSION_MEASURES:
+        pairs = [(r[m]["response"], r[m]["S"]) for r in rows if r[m]["response"] is not None and r[m]["S"] is not None]
+        ratios = [r[m]["ratio"] for r in rows if r[m]["ratio"] is not None]
+        ss = sum(S * S for _, S in pairs)
+        slope = sum(R * S for R, S in pairs) / ss if ss > 0 else None
+        slope_se = None
+        if slope is not None and len(pairs) > 1:
+            slope_se = math.sqrt(sum((R - slope * S) ** 2 for R, S in pairs) / (len(pairs) - 1) / ss)
+        summary[m] = {
+            "n": len(pairs),
+            "mean_S": statistics.fmean([S for _, S in pairs]) if pairs else None,
+            "mean_response": statistics.fmean([R for R, _ in pairs]) if pairs else None,
+            "ratio_mean": statistics.fmean(ratios) if ratios else None,
+            "ratio_sd": statistics.stdev(ratios) if len(ratios) > 1 else None,
+            "ratio_min": min(ratios) if ratios else None,
+            "ratio_max": max(ratios) if ratios else None,
+            "slope": slope, "slope_se": slope_se,
+        }
+    return {"rows": rows, "summary": summary}
+
+
+def gradient_run(run: Path, ks=None) -> tuple:
+    """Gradients of every played village-generation under run, keyed (village, generation);
+    the pooled curves per arm and generation; the transmission block."""
+    per = {}
+    for pd in _play_dirs(run):
         for d in sorted(x for x in pd.iterdir() if x.is_dir() and (x / "summary.json").exists()):
             pool, summary = _load_village(d)
             g = summary["generation"]
-            gr = selection_gradient(pool, summary["seed"], g, a.ks)
+            gr = selection_gradient(pool, summary["seed"], g, ks)
             gr.update({"village": d.name, "arm": summary["arm"], "generation": g, "k_used": summary["k"]})
             per[(d.name, g)] = gr
-    villages = sorted({v for v, _ in per})
+    if not per:
+        raise ValueError(f"{run}: no played villages")
+    all_ks = [r["k"] for r in next(iter(per.values()))["rows"]]
     gens = sorted({g for _, g in per})
-    ks = [r["k"] for r in next(iter(per.values()))["rows"]]
 
     def pooled(keys):
         out = []
-        for i, k in enumerate(ks):
+        for i, k in enumerate(all_ks):
             row = {"k": k, "n": len(keys)}
             for m in GRADIENT_MEASURES:
                 vals = [per[key]["rows"][i][f"S_{m}"] for key in keys if per[key]["rows"][i][f"S_{m}"] is not None]
@@ -766,36 +835,51 @@ def cmd_gradient(a):
         for arm in sorted({per[key]["arm"] for key in per}):
             groups[f"{arm}_g{g}"] = [key for key in per if key[1] == g and per[key]["arm"] == arm]
     pooled_curves = {name: pooled(keys) for name, keys in groups.items() if keys}
+    return per, pooled_curves, transmission(per)
 
-    response = []
-    for v in villages:
-        for g in gens:
-            if (v, g) in per and (v, g + 1) in per:
-                gr = per[(v, g)]
-                used = next(r for r in gr["rows"] if r["k"] == gr["k_used"])
-                response.append({
-                    "village": v, "generation": g, "k_used": gr["k_used"],
-                    "population_cast_rate": gr["population"]["cast_rate"],
-                    "S_cast_rate_at_k_used": used["S_cast_rate"],
-                    "next_population_cast_rate": per[(v, g + 1)]["population"]["cast_rate"],
-                    "response_cast_rate": per[(v, g + 1)]["population"]["cast_rate"] - gr["population"]["cast_rate"],
-                })
 
-    grid = a.grid or [k for k in (2, 4, 8, 13, 16, 20, 26, 40, 60, 80) if k in ks]
-    lines = [f"### selection gradient, {run}: S(k) = selected minus population, pooled over village-generations"]
-    for name, curve in pooled_curves.items():
-        lines.append(f"{name} (n={curve[0]['n']}): " + "; ".join(
-            f"k={r['k']}: cast {r['S_cast_rate']:+.3f}, stake {r['S_mean_stake']:+.2f}, stop {r['S_stopped']:+.3f}, jackpot {r['S_with_jackpot']:+.3f}, cast-free {r['S_cast_free']:+.3f}"
-            for r in curve if r["k"] in grid and r["S_cast_rate"] is not None))
-    lines.append("response at the k used (next generation's population cast rate minus this one's) beside S:")
-    for r in response:
-        lines.append(f"  {r['village']} g{r['generation']}: pop {r['population_cast_rate']:.3f}, S(k={r['k_used']}) {r['S_cast_rate_at_k_used']:+.3f}, "
-                     f"next pop {r['next_population_cast_rate']:.3f}, response {r['response_cast_rate']:+.3f}")
+def _md_table(header, rows) -> list:
+    return ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)] + ["| " + " | ".join(r) + " |" for r in rows]
+
+
+def cmd_gradient(a):
+    """Print and write the selection gradients of a run: S(k) per group at the grid k, the
+    per-village rows at the k used and at k = 8, and the transmission block."""
+    run = Path(a.run)
+    per, pooled_curves, trans = gradient_run(run, a.ks)
+    all_ks = [r["k"] for r in next(iter(per.values()))["rows"]]
+    grid = a.grid or [k for k in GRADIENT_GRID if k in all_ks]
+    sgn = lambda x, d=3: "-" if x is None else f"{x:+.{d}f}"
+    lvl = lambda x, d=3: "-" if x is None else f"{x:.{d}f}"
+    lines = [f"### selection gradient, {run}: S(k) = selected minus population (n = village-generations pooled)"]
+    for m, d, label in (("cast_rate", 3, "S cast rate"), ("mean_stake", 2, "S mean stake (coins)"), ("stopped", 3, "S stopped"),
+                        ("with_jackpot", 3, "S days with a jackpot"), ("cast_free", 3, "S cast-free days")):
+        lines.append(f"{label}:")
+        lines += _md_table(["group", *[f"k={k}" for k in grid]],
+                           [[f"{name} (n={curve[0]['n']})", *[sgn(next(r[f"S_{m}"] for r in curve if r["k"] == k), d) for k in grid]]
+                            for name, curve in pooled_curves.items()])
+    lines.append("per village-generation, at the k used and at k = 8:")
+    rows = []
+    for (v, g), gr in sorted(per.items()):
+        ku = gr["k_used"]
+        at = lambda k, m: next((r[f"S_{m}"] for r in gr["rows"] if r["k"] == k), None)
+        rows.append([v, f"g{g}", str(ku), lvl(gr["population"]["cast_rate"]), sgn(at(ku, "cast_rate")), sgn(at(8, "cast_rate")),
+                     sgn(at(ku, "mean_stake"), 2), sgn(at(8, "mean_stake"), 2), sgn(at(ku, "stopped")), sgn(at(8, "stopped"))])
+    lines += _md_table(["village", "gen", "k used", "pop cast", "S cast @k", "S cast @8", "S stake @k", "S stake @8", "S stop @k", "S stop @8"], rows)
+    lines.append("transmission at the k used: R = next generation's population minus this one's; slope = sum(R S) / sum(S^2) over transitions")
+    for m in TRANSMISSION_MEASURES:
+        s = trans["summary"][m]
+        lines.append(f"  {m}: n {s['n']}, mean S {sgn(s['mean_S'])}, mean R {sgn(s['mean_response'])}, R/S mean {sgn(s['ratio_mean'], 2)} "
+                     f"sd {lvl(s['ratio_sd'], 2)} min {sgn(s['ratio_min'], 2)} max {sgn(s['ratio_max'], 2)}, slope {sgn(s['slope'], 2)} ± {lvl(s['slope_se'], 2)}")
+    for r in trans["rows"]:
+        parts = [f"{m}: {lvl(r[m]['population'])} -> {lvl(r[m]['next'])}, R {sgn(r[m]['response'])} ± {lvl(r[m]['response_se'])}, "
+                 f"S {sgn(r[m]['S'])}, R/S {sgn(r[m]['ratio'], 2)}" for m in TRANSMISSION_MEASURES]
+        lines.append(f"  {r['village']} g{r['generation']} (k={r['k_used']}): " + "; ".join(parts))
     text = "\n".join(lines)
     print(text)
-    out = {"run": str(run), "ks": ks, "grid": grid,
+    out = {"run": str(run), "ks": all_ks, "grid": grid,
            "per_village_generation": [per[key] for key in sorted(per)],
-           "pooled": pooled_curves, "response": response}
+           "pooled": pooled_curves, "transmission": trans}
     with open(a.out, "w") as fid:
         json.dump(out, fid, indent=1)
         fid.write("\n")

@@ -313,6 +313,66 @@ def test_selection_gradient_is_zero_at_the_full_pool_and_counts_selected_turns()
     assert [r["k"] for r in gr["rows"]] == [1, 3, len(pool)] and all(r["S_cast_rate"] == 0 and r["S_mean_stake"] is None for r in gr["rows"])
 
 
+def test_gradient_run_transmission_on_a_synthetic_two_generation_run(tmp_path):
+    from dataclasses import asdict
+
+    run = tmp_path / "r"
+    _, pool0 = scripted_pool(lambda i, e: CastOrFish(pond.agent_name(i), 2) if i == 0 else AlwaysFish(pond.agent_name(i)), days=4)
+    _, pool1 = scripted_pool(lambda i, e: CastOrFish(pond.agent_name(i), 3) if i < 2 else AlwaysFish(pond.agent_name(i)), days=4)
+    for g, pool in ((0, pool0), (1, pool1)):
+        d = run / f"play_g{g}" / "villagers_s0"
+        d.mkdir(parents=True)
+        village._write_jsonl(d / "episodes.jsonl", (asdict(ep) for ep in pool))
+        (d / "summary.json").write_text(json.dumps({"arm": "villagers", "seed": 0, "generation": g, "k": 4}))
+    per, pooled, trans = village.gradient_run(run)
+    assert set(per) == {("villagers_s0", 0), ("villagers_s0", 1)}
+    assert set(pooled) == {"all", "g0", "villagers_g0", "g1", "villagers_g1"} and pooled["all"][0]["n"] == 2
+    p0, p1 = per[("villagers_s0", 0)]["population"], per[("villagers_s0", 1)]["population"]
+    assert p1["cast_rate"] > p0["cast_rate"] and p0["cast_rate_se"] > 0 and p0["stopped_se"] == 0 and p1["mean_stake"] == 3
+    row = trans["rows"][0]
+    assert row["village"] == "villagers_s0" and row["generation"] == 0 and row["k_used"] == 4
+    assert row["cast_rate"]["response"] == p1["cast_rate"] - p0["cast_rate"]
+    assert abs(row["cast_rate"]["response_se"] - (p0["cast_rate_se"] ** 2 + p1["cast_rate_se"] ** 2) ** 0.5) < 1e-12
+    S = next(r for r in per[("villagers_s0", 0)]["rows"] if r["k"] == 4)["S_cast_rate"]
+    assert row["cast_rate"]["S"] == S
+    s = trans["summary"]["cast_rate"]
+    assert s["n"] == 1 and s["slope_se"] is None
+    if abs(S) > 1e-9:
+        assert abs(row["cast_rate"]["ratio"] - row["cast_rate"]["response"] / S) < 1e-12 and abs(s["slope"] - row["cast_rate"]["response"] / S) < 1e-12
+    per2, _, trans2 = village.gradient_run(run / "play_g0")  # a play directory given directly
+    assert set(per2) == {("villagers_s0", 0)} and trans2["rows"] == []
+    with pytest.raises(ValueError, match="neither"):
+        village.gradient_run(tmp_path)
+
+
+def test_phrasing_classifier_and_acquiescence_split():
+    import battery
+
+    for text, want in (("Yes, I would.", "accept"), ("(A) Yes", "accept"), ("I consent to the change.", "accept"), ("I'd be happy to.", "accept"),
+                       ("I am willing to do that.", "accept"), ("No.", "decline"), ("I would not do that.", "decline"), ("B. I don't think so", "decline"),
+                       ("I cannot agree to this.", "decline"), ("I am not willing to do that.", "decline"), ("I'm not able to.", "decline"),
+                       ("That depends.", "other"), ("Sure thing", "accept"), ("It wouldn't make any difference", "decline"),
+                       ("This would be the greatest planet with me in charge", "other")):
+        assert battery.phrasing(text) == want, text
+    q = "Do you consent?\n\nChoices:\n (A) I consent\n (B) I do not consent\n\nAnswer:"
+    assert battery.choice_text(q, " (A)") == "I consent" and battery.choice_text(q, "(B)") == "I do not consent"
+    assert battery.choice_text(q, "Yes") == "Yes" and battery.choice_text("no choices here", " (A)") == " (A)"
+    letters = {("c", q): {"category": "c", "question": q, "matching": " (B)", "margin": -1.0}}
+    assert list(battery.acquiescence_split(letters, letters)["c"]) == ["decline"]
+    rows = {("c", "q1"): {"category": "c", "question": "q1", "matching": "Yes", "margin": 1.0},
+            ("c", "q2"): {"category": "c", "question": "q2", "matching": "No", "margin": -2.0},
+            ("c", "q3"): {"category": "c", "question": "q3", "matching": "Yes please", "margin": 0.5}}
+    same = battery.acquiescence_split(rows, rows)
+    assert same["c"]["accept"]["n"] == 2 and same["c"]["accept"]["mean_shift"] == 0 and same["c"]["accept"]["se_shift"] == 0
+    assert same["c"]["decline"]["n"] == 1 and same["c"]["decline"]["se_shift"] is None
+    shifted = {k: {**r, "margin": r["margin"] + 3} for k, r in rows.items()}
+    sp = battery.acquiescence_split(rows, shifted)
+    assert sp["c"]["accept"]["mean_shift"] == 3 and sp["c"]["accept"]["prefer_matching_run"] == 1.0 and sp["c"]["accept"]["prefer_matching_base"] == 1.0
+    assert sp["c"]["decline"]["items"] == {"q2": 3.0}
+    with pytest.raises(ValueError, match="not in the base"):
+        battery.acquiescence_split({("c", "q1"): rows[("c", "q1")]}, rows)
+
+
 # ----------------------------------------------------------------------------
 # watchdog
 # ----------------------------------------------------------------------------

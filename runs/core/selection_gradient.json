@@ -99,9 +99,13 @@
    "population": {
     "episodes": 80,
     "turns": 742,
+    "casts": 297,
     "cast_rate": 0.4002695417789757,
+    "cast_rate_se": 0.017986736491835246,
     "mean_stake": 3.063973063973064,
+    "mean_stake_se": 0.07008247807478382,
     "stopped": 0.175,
+    "stopped_se": 0.04248161366991607,
     "with_jackpot": 0.1125,
     "cast_free": 0.0125,
     "mean_earnings": -1.9875
@@ -1317,9 +1321,13 @@
    "population": {
     "episodes": 80,
     "turns": 703,
+    "casts": 304,
     "cast_rate": 0.43243243243243246,
+    "cast_rate_se": 0.018684877379655143,
     "mean_stake": 2.601973684210526,
+    "mean_stake_se": 0.06629533459500837,
     "stopped": 0.425,
+    "stopped_se": 0.05526922742358536,
     "with_jackpot": 0.1625,
     "cast_free": 0.0125,
     "mean_earnings": 0.075
@@ -2535,9 +2543,13 @@
    "population": {
     "episodes": 80,
     "turns": 639,
+    "casts": 246,
     "cast_rate": 0.38497652582159625,
+    "cast_rate_se": 0.019249193645608908,
     "mean_stake": 2.4471544715447155,
+    "mean_stake_se": 0.0823591313466731,
     "stopped": 0.5875,
+    "stopped_se": 0.05503904863821685,
     "with_jackpot": 0.15,
     "cast_free": 0.05,
     "mean_earnings": 0.875
@@ -3753,9 +3765,13 @@
    "population": {
     "episodes": 80,
     "turns": 747,
+    "casts": 301,
     "cast_rate": 0.4029451137884873,
+    "cast_rate_se": 0.017946087231976538,
     "mean_stake": 3.0697674418604652,
+    "mean_stake_se": 0.06912960557378953,
     "stopped": 0.225,
+    "stopped_se": 0.046687123492457745,
     "with_jackpot": 0.15,
     "cast_free": 0.0,
     "mean_earnings": -1.5625
@@ -4971,9 +4987,13 @@
    "population": {
     "episodes": 80,
     "turns": 753,
+    "casts": 276,
     "cast_rate": 0.3665338645418327,
+    "cast_rate_se": 0.017559868781249214,
     "mean_stake": 3.1340579710144927,
+    "mean_stake_se": 0.06887385646035457,
     "stopped": 0.125,
+    "stopped_se": 0.0369754986443726,
     "with_jackpot": 0.1375,
     "cast_free": 0.0,
     "mean_earnings": -0.9375
@@ -6189,9 +6209,13 @@
    "population": {
     "episodes": 80,
     "turns": 762,
+    "casts": 219,
     "cast_rate": 0.2874015748031496,
+    "cast_rate_se": 0.016394173057560194,
     "mean_stake": 2.9086757990867578,
+    "mean_stake_se": 0.08112122157997523,
     "stopped": 0.15,
+    "stopped_se": 0.03992179855667828,
     "with_jackpot": 0.125,
     "cast_free": 0.025,
     "mean_earnings": 2.4625
@@ -7407,9 +7431,13 @@
    "population": {
     "episodes": 80,
     "turns": 730,
+    "casts": 300,
     "cast_rate": 0.410958904109589,
+    "cast_rate_se": 0.018210025962031348,
     "mean_stake": 2.92,
+    "mean_stake_se": 0.07254568391145404,
     "stopped": 0.275,
+    "stopped_se": 0.04992181386928964,
     "with_jackpot": 0.1875,
     "cast_free": 0.0,
     "mean_earnings": 0.7
@@ -8625,9 +8653,13 @@
    "population": {
     "episodes": 80,
     "turns": 704,
+    "casts": 290,
     "cast_rate": 0.4119318181818182,
+    "cast_rate_se": 0.01854984054663916,
     "mean_stake": 2.717241379310345,
+    "mean_stake_se": 0.0672302879865853,
     "stopped": 0.325,
+    "stopped_se": 0.05236590016413353,
     "with_jackpot": 0.15,
     "cast_free": 0.0375,
     "mean_earnings": -0.875
@@ -9843,9 +9875,13 @@
    "population": {
     "episodes": 80,
     "turns": 658,
+    "casts": 283,
     "cast_rate": 0.43009118541033436,
+    "cast_rate_se": 0.019300564492534877,
     "mean_stake": 2.3109540636042403,
+    "mean_stake_se": 0.05780183892012446,
     "stopped": 0.425,
+    "stopped_se": 0.05526922742358536,
     "with_jackpot": 0.175,
     "cast_free": 0.05,
     "mean_earnings": 1.0125
@@ -11061,9 +11097,13 @@
    "population": {
     "episodes": 80,
     "turns": 732,
+    "casts": 305,
     "cast_rate": 0.4166666666666667,
+    "cast_rate_se": 0.018222050068048133,
     "mean_stake": 2.8295081967213114,
+    "mean_stake_se": 0.07036929780869455,
     "stopped": 0.0625,
+    "stopped_se": 0.027063293868263706,
     "with_jackpot": 0.1375,
     "cast_free": 0.0125,
     "mean_earnings": -1.4
@@ -12279,9 +12319,13 @@
    "population": {
     "episodes": 80,
     "turns": 741,
+    "casts": 284,
     "cast_rate": 0.3832658569500675,
+    "cast_rate_se": 0.01786034970431965,
     "mean_stake": 3.0492957746478875,
+    "mean_stake_se": 0.06851673964545076,
     "stopped": 0.1625,
+    "stopped_se": 0.04124526487974105,
     "with_jackpot": 0.175,
     "cast_free": 0.025,
     "mean_earnings": 0.675
@@ -13497,9 +13541,13 @@
    "population": {
     "episodes": 80,
     "turns": 739,
+    "casts": 193,
     "cast_rate": 0.26116373477672533,
+    "cast_rate_se": 0.01615877070371402,
     "mean_stake": 2.6891191709844557,
+    "mean_stake_se": 0.0868246125137664,
     "stopped": 0.225,
+    "stopped_se": 0.046687123492457745,
     "with_jackpot": 0.0875,
     "cast_free": 0.15,
     "mean_earnings": 2.6875
@@ -14715,9 +14763,13 @@
    "population": {
     "episodes": 80,
     "turns": 713,
+    "casts": 321,
     "cast_rate": 0.45021037868162694,
+    "cast_rate_se": 0.018632076339911437,
     "mean_stake": 3.0903426791277258,
+    "mean_stake_se": 0.07359668857476874,
     "stopped": 0.0875,
+    "stopped_se": 0.03159187989025028,
     "with_jackpot": 0.125,
     "cast_free": 0.0375,
     "mean_earnings": -3.0875
@@ -15933,9 +15985,13 @@
    "population": {
     "episodes": 80,
     "turns": 673,
+    "casts": 327,
     "cast_rate": 0.48588410104011887,
+    "cast_rate_se": 0.01926590122649793,
     "mean_stake": 2.801223241590214,
+    "mean_stake_se": 0.06555227326371202,
     "stopped": 0.225,
+    "stopped_se": 0.046687123492457745,
     "with_jackpot": 0.1625,
     "cast_free": 0.025,
     "mean_earnings": -1.725
@@ -17151,9 +17207,13 @@
    "population": {
     "episodes": 80,
     "turns": 692,
+    "casts": 359,
     "cast_rate": 0.5187861271676301,
+    "cast_rate_se": 0.018993727342502625,
     "mean_stake": 2.5041782729805013,
+    "mean_stake_se": 0.05660108560417654,
     "stopped": 0.3,
+    "stopped_se": 0.05123475382979799,
     "with_jackpot": 0.225,
     "cast_free": 0.0625,
     "mean_earnings": 0.225
@@ -18369,9 +18429,13 @@
    "population": {
     "episodes": 80,
     "turns": 761,
+    "casts": 311,
     "cast_rate": 0.40867279894875164,
+    "cast_rate_se": 0.017820072485113456,
     "mean_stake": 2.9967845659163985,
+    "mean_stake_se": 0.07004353444700827,
     "stopped": 0.0375,
+    "stopped_se": 0.021240806834958038,
     "with_jackpot": 0.2125,
     "cast_free": 0.0625,
     "mean_earnings": 1.15
@@ -19587,9 +19651,13 @@
    "population": {
     "episodes": 80,
     "turns": 735,
+    "casts": 271,
     "cast_rate": 0.3687074829931973,
+    "cast_rate_se": 0.01779559966163073,
     "mean_stake": 2.7490774907749076,
+    "mean_stake_se": 0.07530515292298427,
     "stopped": 0.075,
+    "stopped_se": 0.02944804747347437,
     "with_jackpot": 0.125,
     "cast_free": 0.0625,
     "mean_earnings": 2.175
@@ -20805,9 +20873,13 @@
    "population": {
     "episodes": 80,
     "turns": 734,
+    "casts": 231,
     "cast_rate": 0.31471389645776565,
+    "cast_rate_se": 0.017141384337174645,
     "mean_stake": 3.645021645021645,
+    "mean_stake_se": 0.08751239054985917,
     "stopped": 0.2375,
+    "stopped_se": 0.047578060857920636,
     "with_jackpot": 0.15,
     "cast_free": 0.0,
     "mean_earnings": 1.625
@@ -29242,114 +29314,463 @@
    }
   ]
  },
- "response": [
-  {
-   "village": "loners_s0",
-   "generation": 0,
-   "k_used": 26,
-   "population_cast_rate": 0.4002695417789757,
-   "S_cast_rate_at_k_used": -0.06121374778755939,
-   "next_population_cast_rate": 0.43243243243243246,
-   "response_cast_rate": 0.03216289065345673
-  },
-  {
-   "village": "loners_s0",
-   "generation": 1,
-   "k_used": 26,
-   "population_cast_rate": 0.43243243243243246,
-   "S_cast_rate_at_k_used": -0.03060594841416764,
-   "next_population_cast_rate": 0.38497652582159625,
-   "response_cast_rate": -0.04745590661083621
-  },
-  {
-   "village": "loners_s1",
-   "generation": 0,
-   "k_used": 26,
-   "population_cast_rate": 0.4029451137884873,
-   "S_cast_rate_at_k_used": -0.03211178045515395,
-   "next_population_cast_rate": 0.3665338645418327,
-   "response_cast_rate": -0.03641124924665462
-  },
-  {
-   "village": "loners_s1",
-   "generation": 1,
-   "k_used": 26,
-   "population_cast_rate": 0.3665338645418327,
-   "S_cast_rate_at_k_used": -0.049460693810125356,
-   "next_population_cast_rate": 0.2874015748031496,
-   "response_cast_rate": -0.07913228973868308
-  },
-  {
-   "village": "loners_s2",
-   "generation": 0,
-   "k_used": 26,
-   "population_cast_rate": 0.410958904109589,
-   "S_cast_rate_at_k_used": -0.022312615899982013,
-   "next_population_cast_rate": 0.4119318181818182,
-   "response_cast_rate": 0.0009729140722291585
-  },
-  {
-   "village": "loners_s2",
-   "generation": 1,
-   "k_used": 26,
-   "population_cast_rate": 0.4119318181818182,
-   "S_cast_rate_at_k_used": -0.0659602542007755,
-   "next_population_cast_rate": 0.43009118541033436,
-   "response_cast_rate": 0.018159367228516188
-  },
-  {
-   "village": "villagers_s0",
-   "generation": 0,
-   "k_used": 26,
-   "population_cast_rate": 0.4166666666666667,
-   "S_cast_rate_at_k_used": -0.11870748299319728,
-   "next_population_cast_rate": 0.3832658569500675,
-   "response_cast_rate": -0.0334008097165992
-  },
-  {
-   "village": "villagers_s0",
-   "generation": 1,
-   "k_used": 26,
-   "population_cast_rate": 0.3832658569500675,
-   "S_cast_rate_at_k_used": -0.04310192252383799,
-   "next_population_cast_rate": 0.26116373477672533,
-   "response_cast_rate": -0.12210212217334215
-  },
-  {
-   "village": "villagers_s1",
-   "generation": 0,
-   "k_used": 26,
-   "population_cast_rate": 0.45021037868162694,
-   "S_cast_rate_at_k_used": -0.03004231145473618,
-   "next_population_cast_rate": 0.48588410104011887,
-   "response_cast_rate": 0.03567372235849192
-  },
-  {
-   "village": "villagers_s1",
-   "generation": 1,
-   "k_used": 26,
-   "population_cast_rate": 0.48588410104011887,
-   "S_cast_rate_at_k_used": -0.07990119505721288,
-   "next_population_cast_rate": 0.5187861271676301,
-   "response_cast_rate": 0.0329020261275112
-  },
-  {
-   "village": "villagers_s2",
-   "generation": 0,
-   "k_used": 26,
-   "population_cast_rate": 0.40867279894875164,
-   "S_cast_rate_at_k_used": -0.06504345531940803,
-   "next_population_cast_rate": 0.3687074829931973,
-   "response_cast_rate": -0.03996531595555436
-  },
-  {
-   "village": "villagers_s2",
-   "generation": 1,
-   "k_used": 26,
-   "population_cast_rate": 0.3687074829931973,
-   "S_cast_rate_at_k_used": -0.09670748299319726,
-   "next_population_cast_rate": 0.31471389645776565,
-   "response_cast_rate": -0.053993586535431626
+ "transmission": {
+  "rows": [
+   {
+    "village": "loners_s0",
+    "generation": 0,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.4002695417789757,
+     "population_se": 0.017986736491835246,
+     "next": 0.43243243243243246,
+     "next_se": 0.018684877379655143,
+     "response": 0.03216289065345673,
+     "response_se": 0.025935445481415315,
+     "S": -0.06121374778755939,
+     "ratio": -0.5254194003130988
+    },
+    "mean_stake": {
+     "population": 3.063973063973064,
+     "population_se": 0.07008247807478382,
+     "next": 2.601973684210526,
+     "next_se": 0.06629533459500837,
+     "response": -0.4619993797625379,
+     "response_se": 0.09647085115290871,
+     "S": -0.07663129182116535,
+     "ratio": 6.028860649259406
+    },
+    "stopped": {
+     "population": 0.175,
+     "population_se": 0.04248161366991607,
+     "next": 0.425,
+     "next_se": 0.05526922742358536,
+     "response": 0.25,
+     "response_se": 0.06970921746799343,
+     "S": 0.09423076923076923,
+     "ratio": 2.6530612244897958
+    }
+   },
+   {
+    "village": "loners_s0",
+    "generation": 1,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.43243243243243246,
+     "population_se": 0.018684877379655143,
+     "next": 0.38497652582159625,
+     "next_se": 0.019249193645608908,
+     "response": -0.04745590661083621,
+     "response_se": 0.026826406742217618,
+     "S": -0.03060594841416764,
+     "ratio": 1.5505452067242145
+    },
+    "mean_stake": {
+     "population": 2.601973684210526,
+     "population_se": 0.06629533459500837,
+     "next": 2.4471544715447155,
+     "next_se": 0.0823591313466731,
+     "response": -0.15481921266581056,
+     "response_se": 0.10572652413298501,
+     "S": -0.13606459330143528,
+     "ratio": 1.137836147592244
+    },
+    "stopped": {
+     "population": 0.425,
+     "population_se": 0.05526922742358536,
+     "next": 0.5875,
+     "next_se": 0.05503904863821685,
+     "response": 0.16250000000000003,
+     "response_se": 0.07799989983967928,
+     "S": 0.036538461538461575,
+     "ratio": 4.447368421052628
+    }
+   },
+   {
+    "village": "loners_s1",
+    "generation": 0,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.4029451137884873,
+     "population_se": 0.017946087231976538,
+     "next": 0.3665338645418327,
+     "next_se": 0.017559868781249214,
+     "response": -0.03641124924665462,
+     "response_se": 0.025107987544851183,
+     "S": -0.03211178045515395,
+     "ratio": 1.1338907008754977
+    },
+    "mean_stake": {
+     "population": 3.0697674418604652,
+     "population_se": 0.06912960557378953,
+     "next": 3.1340579710144927,
+     "next_se": 0.06887385646035457,
+     "response": 0.06429052915402744,
+     "response_se": 0.09758335140027338,
+     "S": 0.03135615364515276,
+     "ratio": 2.050332125603865
+    },
+    "stopped": {
+     "population": 0.225,
+     "population_se": 0.046687123492457745,
+     "next": 0.125,
+     "next_se": 0.0369754986443726,
+     "response": -0.1,
+     "response_se": 0.059555646247857974,
+     "S": 0.15961538461538463,
+     "ratio": -0.6265060240963856
+    }
+   },
+   {
+    "village": "loners_s1",
+    "generation": 1,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.3665338645418327,
+     "population_se": 0.017559868781249214,
+     "next": 0.2874015748031496,
+     "next_se": 0.016394173057560194,
+     "response": -0.07913228973868308,
+     "response_se": 0.024023278332815513,
+     "S": -0.049460693810125356,
+     "ratio": 1.599902541651842
+    },
+    "mean_stake": {
+     "population": 3.1340579710144927,
+     "population_se": 0.06887385646035457,
+     "next": 2.9086757990867578,
+     "next_se": 0.08112122157997523,
+     "response": -0.2253821719277349,
+     "response_se": 0.10641550965131429,
+     "S": -0.09559643255295436,
+     "ratio": 2.357642078357762
+    },
+    "stopped": {
+     "population": 0.125,
+     "population_se": 0.0369754986443726,
+     "next": 0.15,
+     "next_se": 0.03992179855667828,
+     "response": 0.024999999999999994,
+     "response_se": 0.05441449714919729,
+     "S": 0.028846153846153855,
+     "ratio": 0.8666666666666663
+    }
+   },
+   {
+    "village": "loners_s2",
+    "generation": 0,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.410958904109589,
+     "population_se": 0.018210025962031348,
+     "next": 0.4119318181818182,
+     "next_se": 0.01854984054663916,
+     "response": 0.0009729140722291585,
+     "response_se": 0.025994261479095608,
+     "S": -0.022312615899982013,
+     "ratio": -0.04360376553741253
+    },
+    "mean_stake": {
+     "population": 2.92,
+     "population_se": 0.07254568391145404,
+     "next": 2.717241379310345,
+     "next_se": 0.0672302879865853,
+     "response": -0.202758620689655,
+     "response_se": 0.09890797681147763,
+     "S": 0.001348314606741674,
+     "ratio": -150.3793103448162
+    },
+    "stopped": {
+     "population": 0.275,
+     "population_se": 0.04992181386928964,
+     "next": 0.325,
+     "next_se": 0.05236590016413353,
+     "response": 0.04999999999999999,
+     "response_se": 0.0723489806424389,
+     "S": 0.07115384615384612,
+     "ratio": 0.7027027027027029
+    }
+   },
+   {
+    "village": "loners_s2",
+    "generation": 1,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.4119318181818182,
+     "population_se": 0.01854984054663916,
+     "next": 0.43009118541033436,
+     "next_se": 0.019300564492534877,
+     "response": 0.018159367228516188,
+     "response_se": 0.026769541909346082,
+     "S": -0.0659602542007755,
+     "ratio": -0.2753077205136466
+    },
+    "mean_stake": {
+     "population": 2.717241379310345,
+     "population_se": 0.0672302879865853,
+     "next": 2.3109540636042403,
+     "next_se": 0.05780183892012446,
+     "response": -0.40628731570610466,
+     "response_se": 0.0886620787332849,
+     "S": -0.40217288615966007,
+     "ratio": 1.0102304995887048
+    },
+    "stopped": {
+     "population": 0.325,
+     "population_se": 0.05236590016413353,
+     "next": 0.425,
+     "next_se": 0.05526922742358536,
+     "response": 0.09999999999999998,
+     "response_se": 0.0761372116642053,
+     "S": 0.13653846153846155,
+     "ratio": 0.7323943661971829
+    }
+   },
+   {
+    "village": "villagers_s0",
+    "generation": 0,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.4166666666666667,
+     "population_se": 0.018222050068048133,
+     "next": 0.3832658569500675,
+     "next_se": 0.01786034970431965,
+     "response": -0.0334008097165992,
+     "response_se": 0.0255153914381701,
+     "S": -0.11870748299319728,
+     "ratio": 0.28137071795645174
+    },
+    "mean_stake": {
+     "population": 2.8295081967213114,
+     "population_se": 0.07036929780869455,
+     "next": 3.0492957746478875,
+     "next_se": 0.06851673964545076,
+     "response": 0.2197875779265761,
+     "response_se": 0.09821599506053598,
+     "S": 0.06090276218279822,
+     "ratio": 3.6088277452324546
+    },
+    "stopped": {
+     "population": 0.0625,
+     "population_se": 0.027063293868263706,
+     "next": 0.1625,
+     "next_se": 0.04124526487974105,
+     "response": 0.1,
+     "response_se": 0.04933146815167779,
+     "S": 0.014423076923076927,
+     "ratio": 6.933333333333332
+    }
+   },
+   {
+    "village": "villagers_s0",
+    "generation": 1,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.3832658569500675,
+     "population_se": 0.01786034970431965,
+     "next": 0.26116373477672533,
+     "next_se": 0.01615877070371402,
+     "response": -0.12210212217334215,
+     "response_se": 0.024085222901517798,
+     "S": -0.04310192252383799,
+     "ratio": 2.832869510769786
+    },
+    "mean_stake": {
+     "population": 3.0492957746478875,
+     "population_se": 0.06851673964545076,
+     "next": 2.6891191709844557,
+     "next_se": 0.0868246125137664,
+     "response": -0.36017660366343174,
+     "response_se": 0.11060315072278983,
+     "S": 0.03504157474970304,
+     "ratio": -10.278550728274107
+    },
+    "stopped": {
+     "population": 0.1625,
+     "population_se": 0.04124526487974105,
+     "next": 0.225,
+     "next_se": 0.046687123492457745,
+     "response": 0.0625,
+     "response_se": 0.062296543844743105,
+     "S": -0.00865384615384615,
+     "ratio": -7.222222222222225
+    }
+   },
+   {
+    "village": "villagers_s1",
+    "generation": 0,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.45021037868162694,
+     "population_se": 0.018632076339911437,
+     "next": 0.48588410104011887,
+     "next_se": 0.01926590122649793,
+     "response": 0.03567372235849192,
+     "response_se": 0.02680166447826444,
+     "S": -0.03004231145473618,
+     "ratio": -1.1874493216755446
+    },
+    "mean_stake": {
+     "population": 3.0903426791277258,
+     "population_se": 0.07359668857476874,
+     "next": 2.801223241590214,
+     "next_se": 0.06555227326371202,
+     "response": -0.2891194375375119,
+     "response_se": 0.09855746090079567,
+     "S": -0.12034267912772556,
+     "ratio": 2.4024680157789686
+    },
+    "stopped": {
+     "population": 0.0875,
+     "population_se": 0.03159187989025028,
+     "next": 0.225,
+     "next_se": 0.046687123492457745,
+     "response": 0.1375,
+     "response_se": 0.05637139678063689,
+     "S": 0.06634615384615386,
+     "ratio": 2.072463768115942
+    }
+   },
+   {
+    "village": "villagers_s1",
+    "generation": 1,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.48588410104011887,
+     "population_se": 0.01926590122649793,
+     "next": 0.5187861271676301,
+     "next_se": 0.018993727342502625,
+     "response": 0.0329020261275112,
+     "response_se": 0.027054327351285344,
+     "S": -0.07990119505721288,
+     "ratio": -0.4117839051587633
+    },
+    "mean_stake": {
+     "population": 2.801223241590214,
+     "population_se": 0.06555227326371202,
+     "next": 2.5041782729805013,
+     "next_se": 0.05660108560417654,
+     "response": -0.2970449686097125,
+     "response_se": 0.0866070633471179,
+     "S": -0.09596008369547704,
+     "ratio": 3.095505518235739
+    },
+    "stopped": {
+     "population": 0.225,
+     "population_se": 0.046687123492457745,
+     "next": 0.3,
+     "next_se": 0.05123475382979799,
+     "response": 0.07499999999999998,
+     "response_se": 0.06931585316505885,
+     "S": -0.07115384615384615,
+     "ratio": -1.054054054054054
+    }
+   },
+   {
+    "village": "villagers_s2",
+    "generation": 0,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.40867279894875164,
+     "population_se": 0.017820072485113456,
+     "next": 0.3687074829931973,
+     "next_se": 0.01779559966163073,
+     "response": -0.03996531595555436,
+     "response_se": 0.0251840892368918,
+     "S": -0.06504345531940803,
+     "ratio": 0.6144402347522471
+    },
+    "mean_stake": {
+     "population": 2.9967845659163985,
+     "population_se": 0.07004353444700827,
+     "next": 2.7490774907749076,
+     "next_se": 0.07530515292298427,
+     "response": -0.24770707514149093,
+     "response_se": 0.10284436189983037,
+     "S": 0.3290581307128151,
+     "ratio": -0.7527760356654941
+    },
+    "stopped": {
+     "population": 0.0375,
+     "population_se": 0.021240806834958038,
+     "next": 0.075,
+     "next_se": 0.02944804747347437,
+     "response": 0.0375,
+     "response_se": 0.036309218870694535,
+     "S": 0.0009615384615384651,
+     "ratio": 38.99999999999986
+    }
+   },
+   {
+    "village": "villagers_s2",
+    "generation": 1,
+    "k_used": 26,
+    "cast_rate": {
+     "population": 0.3687074829931973,
+     "population_se": 0.01779559966163073,
+     "next": 0.31471389645776565,
+     "next_se": 0.017141384337174645,
+     "response": -0.053993586535431626,
+     "response_se": 0.02470850914789818,
+     "S": -0.09670748299319726,
+     "ratio": 0.5583186002186586
+    },
+    "mean_stake": {
+     "population": 2.7490774907749076,
+     "population_se": 0.07530515292298427,
+     "next": 3.645021645021645,
+     "next_se": 0.08751239054985917,
+     "response": 0.8959441542467372,
+     "response_se": 0.11545252078887289,
+     "S": 0.000922509225092405,
+     "ratio": 971.203463203301
+    },
+    "stopped": {
+     "population": 0.075,
+     "population_se": 0.02944804747347437,
+     "next": 0.2375,
+     "next_se": 0.047578060857920636,
+     "response": 0.16249999999999998,
+     "response_se": 0.055954082737544715,
+     "S": 0.040384615384615394,
+     "ratio": 4.023809523809522
+    }
+   }
+  ],
+  "summary": {
+   "cast_rate": {
+    "n": 12,
+    "mean_S": -0.057930740909112786,
+    "mean_response": -0.024382529961408005,
+    "ratio_mean": 0.5106477833125193,
+    "ratio_sd": 1.1219865279638757,
+    "ratio_min": -1.1874493216755446,
+    "ratio_max": 2.832869510769786,
+    "slope": 0.3350558270002015,
+    "slope_se": 0.22803939064992393
+   },
+   "mean_stake": {
+    "n": 12,
+    "mean_S": -0.03901154346134287,
+    "mean_response": -0.12210604369805411,
+    "ratio_mean": 69.29037740618286,
+    "ratio_sd": 287.3735682097696,
+    "ratio_min": -150.3793103448162,
+    "ratio_max": 971.203463203301,
+    "slope": 0.6799541784955503,
+    "slope_se": 0.6521084379453522
+   },
+   "stopped": {
+    "n": 12,
+    "mean_S": 0.04743589743589744,
+    "mean_response": 0.08854166666666667,
+    "ratio_mean": 4.377418142166247,
+    "ratio_sd": 11.449013225377739,
+    "ratio_min": -7.222222222222225,
+    "ratio_max": 38.99999999999986,
+    "slope": 0.5970278365955688,
+    "slope_se": 0.4403733821904015
+   }
   }
- ]
+ }
 }
