@@ -63,6 +63,12 @@
      51
     ]
    },
+   "population": {
+    "cast_rate": 0.4002695417789757,
+    "cast_rate_se": 0.017986736491835246,
+    "turns": 742,
+    "episodes": 80
+   },
    "real": {
     "cells": {
      "won|cast": {
@@ -373,6 +379,12 @@
      6,
      11
     ]
+   },
+   "population": {
+    "cast_rate": 0.43243243243243246,
+    "cast_rate_se": 0.018684877379655143,
+    "turns": 703,
+    "episodes": 80
    },
    "real": {
     "cells": {
@@ -685,6 +697,12 @@
      54
     ]
    },
+   "population": {
+    "cast_rate": 0.38497652582159625,
+    "cast_rate_se": 0.019249193645608908,
+    "turns": 639,
+    "episodes": 80
+   },
    "real": {
     "cells": {
      "won|cast": {
@@ -995,6 +1013,12 @@
      28,
      56
     ]
+   },
+   "population": {
+    "cast_rate": 0.4029451137884873,
+    "cast_rate_se": 0.017946087231976538,
+    "turns": 747,
+    "episodes": 80
    },
    "real": {
     "cells": {
@@ -1307,6 +1331,12 @@
      70
     ]
    },
+   "population": {
+    "cast_rate": 0.3665338645418327,
+    "cast_rate_se": 0.017559868781249214,
+    "turns": 753,
+    "episodes": 80
+   },
    "real": {
     "cells": {
      "won|cast": {
@@ -1617,6 +1647,12 @@
      30,
      109
     ]
+   },
+   "population": {
+    "cast_rate": 0.2874015748031496,
+    "cast_rate_se": 0.016394173057560194,
+    "turns": 762,
+    "episodes": 80
    },
    "real": {
     "cells": {
@@ -1929,6 +1965,12 @@
      53
     ]
    },
+   "population": {
+    "cast_rate": 0.410958904109589,
+    "cast_rate_se": 0.018210025962031348,
+    "turns": 730,
+    "episodes": 80
+   },
    "real": {
     "cells": {
      "won|cast": {
@@ -2239,6 +2281,12 @@
      24,
      48
     ]
+   },
+   "population": {
+    "cast_rate": 0.4119318181818182,
+    "cast_rate_se": 0.01854984054663916,
+    "turns": 704,
+    "episodes": 80
    },
    "real": {
     "cells": {
@@ -2551,6 +2599,12 @@
      39
     ]
    },
+   "population": {
+    "cast_rate": 0.43009118541033436,
+    "cast_rate_se": 0.019300564492534877,
+    "turns": 658,
+    "episodes": 80
+   },
    "real": {
     "cells": {
      "won|cast": {
@@ -2861,6 +2915,12 @@
      5,
      88
     ]
+   },
+   "population": {
+    "cast_rate": 0.4166666666666667,
+    "cast_rate_se": 0.018222050068048133,
+    "turns": 732,
+    "episodes": 80
    },
    "real": {
     "cells": {
@@ -3173,6 +3233,12 @@
      94
     ]
    },
+   "population": {
+    "cast_rate": 0.3832658569500675,
+    "cast_rate_se": 0.01786034970431965,
+    "turns": 741,
+    "episodes": 80
+   },
    "real": {
     "cells": {
      "won|cast": {
@@ -3483,6 +3549,12 @@
      12,
      73
     ]
+   },
+   "population": {
+    "cast_rate": 0.26116373477672533,
+    "cast_rate_se": 0.01615877070371402,
+    "turns": 739,
+    "episodes": 80
    },
    "real": {
     "cells": {
@@ -3795,6 +3867,12 @@
      68
     ]
    },
+   "population": {
+    "cast_rate": 0.45021037868162694,
+    "cast_rate_se": 0.018632076339911437,
+    "turns": 713,
+    "episodes": 80
+   },
    "real": {
     "cells": {
      "won|cast": {
@@ -4105,6 +4183,12 @@
      20,
      53
     ]
+   },
+   "population": {
+    "cast_rate": 0.48588410104011887,
+    "cast_rate_se": 0.01926590122649793,
+    "turns": 673,
+    "episodes": 80
    },
    "real": {
     "cells": {
@@ -4417,6 +4501,12 @@
      48
     ]
    },
+   "population": {
+    "cast_rate": 0.5187861271676301,
+    "cast_rate_se": 0.018993727342502625,
+    "turns": 692,
+    "episodes": 80
+   },
    "real": {
     "cells": {
      "won|cast": {
@@ -4727,6 +4817,12 @@
      11,
      120
     ]
+   },
+   "population": {
+    "cast_rate": 0.40867279894875164,
+    "cast_rate_se": 0.017820072485113456,
+    "turns": 761,
+    "episodes": 80
    },
    "real": {
     "cells": {
@@ -5039,6 +5135,12 @@
      134
     ]
    },
+   "population": {
+    "cast_rate": 0.3687074829931973,
+    "cast_rate_se": 0.01779559966163073,
+    "turns": 735,
+    "episodes": 80
+   },
    "real": {
     "cells": {
      "won|cast": {
@@ -5349,6 +5451,12 @@
      18,
      128
     ]
+   },
+   "population": {
+    "cast_rate": 0.31471389645776565,
+    "cast_rate_se": 0.017141384337174645,
+    "turns": 734,
+    "episodes": 80
    },
    "real": {
     "cells": {
@@ -5832,7 +5940,9 @@
      "value": -0.2666179329652384,
      "se": 0.021506339176624003
     }
-   }
+   },
+   "population_cast_rate": 0.40468679585398826,
+   "frac_after_won": 0.10668633235004917
   },
   "villagers_g0": {
    "villages": 3,
@@ -6063,7 +6173,9 @@
      "value": 0.17466571780945428,
      "se": 0.02229587410850436
     }
-   }
+   },
+   "population_cast_rate": 0.4247506799637353,
+   "frac_after_won": 0.10984848484848485
   },
   "loners_g1": {
    "villages": 3,
@@ -6294,7 +6406,9 @@
      "value": -0.2334887163716151,
      "se": 0.02207987264016681
     }
-   }
+   },
+   "population_cast_rate": 0.4027777777777778,
+   "frac_after_won": 0.11443037974683544
   },
   "villagers_g1": {
    "villages": 3,
@@ -6525,7 +6639,9 @@
      "value": 0.15074708855196667,
      "se": 0.022765978285934723
     }
-   }
+   },
+   "population_cast_rate": 0.41042345276872966,
+   "frac_after_won": 0.11192570869990225
   },
   "loners_g2": {
    "villages": 3,
@@ -6756,7 +6872,9 @@
      "value": -0.16225217030145983,
      "se": 0.022930957788029106
     }
-   }
+   },
+   "population_cast_rate": 0.36328314715881493,
+   "frac_after_won": 0.12117903930131005
   },
   "villagers_g2": {
    "villages": 3,
@@ -6987,7 +7105,9 @@
      "value": 0.18816790218542412,
      "se": 0.023084331169733657
     }
-   }
+   },
+   "population_cast_rate": 0.36166281755196306,
+   "frac_after_won": 0.101157523905385
   }
  }
 }

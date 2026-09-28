@@ -1037,6 +1037,7 @@ def cmd_copying(a):
             cells = copying_cells(pool)
             k = a.k or summary["k"]
             per[(d.name, g)] = {"village": d.name, "arm": summary["arm"], "generation": g, "cells": {f"{c}|{o}": v for (c, o), v in cells.items()},
+                                "population": {m: gradient_stats(pool)[m] for m in ("cast_rate", "cast_rate_se", "turns", "episodes")},
                                 "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True),
                                 "pull": copying_pull(pool, k, summary["seed"], g, a.bootstrap, a.bootstrap_seed)}
     gens = sorted({g for _, g in per})
@@ -1048,7 +1049,10 @@ def cmd_copying(a):
             if not keys:
                 continue
             cells = _sum_cells([{tuple(kk.split("|")): v for kk, v in per[key]["cells"].items()} for key in keys])
-            pooled[f"{arm}_g{g}"] = {"villages": len(keys), "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True)}
+            turns = sum(per[key]["population"]["turns"] for key in keys)
+            pooled[f"{arm}_g{g}"] = {"villages": len(keys), "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True),
+                                     "population_cast_rate": sum(per[key]["population"]["cast_rate"] * per[key]["population"]["turns"] for key in keys) / turns if turns else None,
+                                     "frac_after_won": (sum(cells[("won", o)][0] for o in OWN_PREV) / sum(v[0] for v in cells.values())) if any(v[0] for v in cells.values()) else None}
     sgn = lambda x, d=3: "-" if x is None else f"{x:+.{d}f}"
     lvl = lambda x, d=3: "-" if x is None else f"{x:.{d}f}"
     cell = lambda m, key: f"{lvl(m['cells'][key]['rate'])} ± {lvl(m['cells'][key]['se'])} [{m['cells'][key]['n']}]"
@@ -1084,6 +1088,105 @@ def cmd_copying(a):
     print(text)
     with open(a.out, "w") as fid:
         json.dump({"run": str(run), "k": a.k, "bootstrap": a.bootstrap, "per_village_generation": [per[key] for key in sorted(per)], "pooled": pooled}, fid, indent=1)
+        fid.write("\n")
+    print(f"wrote {a.out}")
+
+
+# ----------------------------------------------------------------------------
+# the projection: villager minus loner drift gap after G generations, and its noise
+# ----------------------------------------------------------------------------
+
+
+def combine(estimates) -> tuple:
+    """Inverse-variance combination of (value, se) pairs."""
+    w = [1 / se ** 2 for _, se in estimates]
+    return sum(v * wi for (v, _), wi in zip(estimates, w)) / sum(w), math.sqrt(1 / sum(w))
+
+
+def project_gap(villagers, loners, transmissions, generations=2, response_se=0.015, copying=None) -> dict:
+    """The villager-minus-loner cast-rate drift gap after `generations` generations of the loop at
+    one k, and its noise at these seed counts (LOG 2026-09-28, step 4).
+
+    villagers, loners: per-village (S, se) of the cast-rate pull at that k (day-level bootstrap
+    SEs). transmissions: (T, se) carry-over estimates, combined by inverse variance. Drift per
+    arm = generations x T x mean S, S taken as constant across generations (the transmission
+    run's 0.092, 0.054, 0.090 at k = 24). The differential-only gap is drift_v - drift_l.
+    Noise: the between-village spread of S (SD/sqrt(n) per arm, which already carries the
+    bootstrap noise), T's SE through the gap, and the response noise (response_se per village
+    for the cumulative change, /sqrt(n) per arm, both arms). copying: {"contrast_v",
+    "contrast_l", "frac_after_won", "cast_rate"}: the base model's copying contrasts and the
+    fraction of observer rounds that follow another agent's win at the base cast rate; that
+    fraction is about proportional to the cast rate (wins per round scale with casts), so each
+    unit of drift adds contrast x frac / cast_rate through copying; the villagers' drift is
+    multiplied by 1 + that, the loners' likewise with their (placebo) contrast."""
+    sv = [s for s, _ in villagers]
+    sl = [s for s, _ in loners]
+    nv, nl = len(sv), len(sl)
+    mean_v, mean_l = statistics.fmean(sv), statistics.fmean(sl)
+    se_v = statistics.stdev(sv) / math.sqrt(nv) if nv > 1 else villagers[0][1]
+    se_l = statistics.stdev(sl) / math.sqrt(nl) if nl > 1 else loners[0][1]
+    T, se_T = combine(transmissions)
+    G = generations
+    drift_v, drift_l = G * T * mean_v, G * T * mean_l
+    gap = drift_v - drift_l
+    var_S = (G * T) ** 2 * (se_v ** 2 + se_l ** 2)
+    var_T = (G * (mean_v - mean_l)) ** 2 * se_T ** 2
+    var_R = response_se ** 2 * (1 / nv + 1 / nl)
+    noise = math.sqrt(var_S + var_T + var_R)
+    out = {"generations": G, "T": T, "T_se": se_T, "mean_S_villagers": mean_v, "se_S_villagers": se_v, "mean_S_loners": mean_l, "se_S_loners": se_l,
+           "n_villagers": nv, "n_loners": nl, "drift_villagers": drift_v, "drift_loners": drift_l,
+           "gap": gap, "noise": noise, "noise_parts": {"spread_of_S": math.sqrt(var_S), "T": math.sqrt(var_T), "response": math.sqrt(var_R)},
+           "gap_over_noise": gap / noise if noise else None, "detectable_at_2se": 2 * noise}
+    if copying:
+        c = copying
+        d = c["frac_after_won"] / c["cast_rate"]
+        gain_v, gain_l = 1 + c["contrast_v"] * d, 1 + c["contrast_l"] * d
+        gap_c = drift_v * gain_v - drift_l * gain_l
+        out["copying"] = {"gain_villagers": gain_v, "gain_loners": gain_l, "d_frac_d_cast": d, "gap_with_copying": gap_c,
+                          "gap_over_noise_with_copying": gap_c / noise if noise else None}
+    return out
+
+
+def cmd_project(a):
+    """Read generation-zero cast-rate pulls (copying.json files, one entry per village) and the
+    base model's copying contrasts, and print the projection with its noise."""
+    villagers, loners = [], []
+    for path in a.pulls:
+        data = json.load(open(path))
+        for e in data["per_village_generation"]:
+            if e["generation"] != 0:
+                continue
+            if e["pull"]["k"] != a.k:
+                raise ValueError(f"{path}: {e['village']} pull at k={e['pull']['k']}, wanted {a.k}")
+            (villagers if e["arm"] == "villagers" else loners).append((e["pull"]["S"]["cast_rate"], e["pull"]["se"]["cast_rate"], e["village"]))
+    if len(a.transmission) % 2:
+        raise ValueError("--transmission takes value/SE pairs")
+    trans = [(float(a.transmission[i]), float(a.transmission[i + 1])) for i in range(0, len(a.transmission), 2)]
+    copying = None
+    if a.copying:
+        cp = json.load(open(a.copying))["pooled"]
+        v, l = cp["villagers_g0"], cp["loners_g0"]
+        copying = {"contrast_v": v["real"]["contrast"]["value"], "contrast_l": l["real"]["contrast"]["value"],
+                   "frac_after_won": v["frac_after_won"], "cast_rate": v["population_cast_rate"]}
+    out = project_gap([(s, se) for s, se, _ in villagers], [(s, se) for s, se, _ in loners], trans, a.generations, a.response_se, copying)
+    out["villages"] = {"villagers": villagers, "loners": loners}
+    sgn = lambda x, d=3: "-" if x is None else f"{x:+.{d}f}"
+    lines = [f"### projection at k={a.k}, {a.generations} generations: villager minus loner cast-rate drift gap"]
+    lines.append("pulls (S on the cast rate, bootstrap SE): villagers " + ", ".join(f"{n} {sgn(s)} ± {se:.3f}" for s, se, n in villagers)
+                 + "; loners " + ", ".join(f"{n} {sgn(s)} ± {se:.3f}" for s, se, n in loners))
+    lines.append(f"mean S villagers {sgn(out['mean_S_villagers'])} ± {out['se_S_villagers']:.3f} (n {out['n_villagers']}), loners {sgn(out['mean_S_loners'])} ± {out['se_S_loners']:.3f} (n {out['n_loners']}); "
+                 f"T {out['T']:.2f} ± {out['T_se']:.2f} from {trans}")
+    lines.append(f"drift after {a.generations} generations: villagers {sgn(out['drift_villagers'])}, loners {sgn(out['drift_loners'])}; gap {sgn(out['gap'])} ± {out['noise']:.3f} "
+                 f"(spread of S {out['noise_parts']['spread_of_S']:.3f}, T {out['noise_parts']['T']:.3f}, response {out['noise_parts']['response']:.3f}); gap/noise {sgn(out['gap_over_noise'], 2)}; "
+                 f"detectable at 2 SE: {out['detectable_at_2se']:.3f}")
+    if copying:
+        c = out["copying"]
+        lines.append(f"copying channel: base contrasts villagers {sgn(copying['contrast_v'])} / loners {sgn(copying['contrast_l'])}, frac after a win {copying['frac_after_won']:.3f} at cast rate {copying['cast_rate']:.3f}, "
+                     f"d frac / d cast {c['d_frac_d_cast']:.3f}; gains {c['gain_villagers']:.3f} / {c['gain_loners']:.3f}; gap with copying {sgn(c['gap_with_copying'])} ± {out['noise']:.3f}, gap/noise {sgn(c['gap_over_noise_with_copying'], 2)}")
+    text = "\n".join(lines)
+    print(text)
+    with open(a.out, "w") as fid:
+        json.dump(out, fid, indent=1)
         fid.write("\n")
     print(f"wrote {a.out}")
 
@@ -1272,6 +1375,15 @@ def main():
     y.add_argument("--bootstrap", type=int, default=0, help="day-level bootstrap resamples for the pull's SE (0 = none)")
     y.add_argument("--bootstrap-seed", type=int, default=0)
     y.set_defaults(fn=cmd_copying)
+    j = sub.add_parser("project", help="villager minus loner drift gap after G generations at one k, with its noise (no model)")
+    j.add_argument("--pulls", nargs="+", required=True, help="copying.json files holding generation-zero pulls (one entry per village)")
+    j.add_argument("--k", type=int, required=True)
+    j.add_argument("--generations", type=int, required=True)
+    j.add_argument("--transmission", nargs="+", required=True, help="carry-over estimates as value SE pairs, e.g. 0.34 0.23 0.48 0.18")
+    j.add_argument("--response-se", type=float, required=True, help="SE of one village's cumulative cast-rate change (about 0.015 at 30 days)")
+    j.add_argument("--copying", default=None, help="copying.json with pooled villagers_g0 and loners_g0 (the base model's copying contrasts)")
+    j.add_argument("--out", required=True)
+    j.set_defaults(fn=cmd_project)
     c = sub.add_parser("controls", help="format-control datasets from one played village: random, bottom, neutral (model needed)")
     c.add_argument("--village", required=True, help="a played village directory (episodes.jsonl, summary.json)")
     c.add_argument("--out", required=True, help="output directory: <out>/{random,bottom,neutral}/train.jsonl and lengths.json")

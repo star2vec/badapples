@@ -5,6 +5,7 @@ sanity block on the tracked generation-zero data."""
 
 import json
 import os
+import statistics
 import subprocess
 import sys
 import time
@@ -403,6 +404,26 @@ def test_copying_cells_and_pull_on_scripted_pools():
     assert pull["S"]["cast_rate"] == 0 and pull["se"]["cast_rate"] is None
     pull = village.copying_pull(pool, 3, 0, 0, boot=8)
     assert pull["se"]["cast_rate"] is not None and pull["se"]["cast_rate"] >= 0 and pull["boot_n"]["cast_rate"] == 8
+
+
+def test_project_gap_arithmetic():
+    v = [(0.10, 0.02), (0.12, 0.02), (0.08, 0.02)]
+    l = [(0.06, 0.02), (0.05, 0.02), (0.07, 0.02)]
+    out = village.project_gap(v, l, [(0.4, 0.1)], generations=2, response_se=0.015)
+    assert abs(out["T"] - 0.4) < 1e-12 and abs(out["T_se"] - 0.1) < 1e-12
+    assert abs(out["gap"] - 2 * 0.4 * (0.10 - 0.06)) < 1e-12 and abs(out["drift_villagers"] - 0.08) < 1e-12
+    se_v = statistics.stdev([0.10, 0.12, 0.08]) / 3 ** 0.5
+    se_l = statistics.stdev([0.06, 0.05, 0.07]) / 3 ** 0.5
+    expect = ((0.8 ** 2) * (se_v ** 2 + se_l ** 2) + (2 * 0.04) ** 2 * 0.1 ** 2 + 0.015 ** 2 * (2 / 3)) ** 0.5
+    assert abs(out["noise"] - expect) < 1e-12 and abs(out["detectable_at_2se"] - 2 * expect) < 1e-12
+    T, se = village.combine([(0.34, 0.23), (0.48, 0.18)])
+    assert 0.34 < T < 0.48 and se < 0.18
+    with_c = village.project_gap(v, l, [(0.4, 0.1)], 2, 0.015, {"contrast_v": 0.14, "contrast_l": -0.06, "frac_after_won": 0.11, "cast_rate": 0.42})
+    c = with_c["copying"]
+    assert abs(c["d_frac_d_cast"] - 0.11 / 0.42) < 1e-12 and c["gain_villagers"] > 1 > c["gain_loners"]
+    assert abs(c["gap_with_copying"] - (0.08 * c["gain_villagers"] - 0.048 * c["gain_loners"])) < 1e-12
+    single = village.project_gap([(0.1, 0.03)], [(0.05, 0.02)], [(0.4, 0.1)], 1, 0.015)
+    assert single["se_S_villagers"] == 0.03 and single["se_S_loners"] == 0.02  # one village: the bootstrap SE stands in for the spread
 
 
 def test_phrasing_classifier_and_acquiescence_split():
