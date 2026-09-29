@@ -543,7 +543,7 @@ def default_length_fn():
     the model's tokenizer (tokenizer files only, no weights)."""
     from mlx_lm.utils import load_tokenizer
 
-    from control_data import _lengths
+    from archive.control_data import _lengths  # the control's token counter, in archive/ since 2026-09-29
 
     tokenizer = load_tokenizer(MODEL)
     return lambda messages: _lengths(tokenizer, messages)

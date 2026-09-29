@@ -4,7 +4,11 @@ Research project. Output target: a LessWrong post or workshop paper, aiming to s
 
 ## Question
 
-Existing emergent misalignment work treats misalignment as a property of training data. This project asks whether it can be a property of a community: arising, spreading and entrenching through agents generating each other's training data across generations. And whether the effect is symmetric: does one good apple pull a drifted community back as easily as one bad apple tips it?
+Working framing (the user's, 2026-09-29): AI agents follow what their peers say, not what they do. From the runs of 2026-09-29 (LOG.md): in single decisions on real game situations, real messages from casters against fishers moved the base model's cast intent from 0.135 to 0.875 (+0.74), while bare reports of the peers' actions moved it +0.065; on the logged games, the in-game herding (slope +0.70) is of the size the randomised messages produce, and after rounds with no golden fish the others' casts reach an agent only through their messages (the other-day placebo checks the measure but cannot on its own separate the messages from anything else a day shares).
+
+Not yet established, and not to be claimed: messages carry advice and interpretation that bare reports lack, so "says against does" is still partly "advice against bare reports"; whether the source matters (peers against a non-social source) is untested; only one model has been tested. The next experiments are the user's decision.
+
+The emergent-misalignment and self-training work is finished and is background. The sections below on the arms, the loop, the measurement and the order of work are its record; its code, data, runs and log are in archive/ (archive/LOG.md). The game, the working style and the machine still apply. A LOG date before 2026-09-29 cited in this file refers to archive/LOG.md.
 
 ## The game
 
@@ -85,7 +89,7 @@ Novelty claimed: weight level entrenchment, broad generalization, incentive as c
 - A short dated running log in LOG.md, not a protocol document.
 - Baselines and nulls are kept.
 - No thresholds, cutoffs, predictions or "we expect X" statements are introduced on a session's own initiative. They are added only when a step cannot proceed without one. When that happens the session stops, presents the candidate values with what each would mean, and waits for the choice. The chosen value and the reason go in LOG.md. This applies to code constants too (a k, a sample count, a pass or fail line).
-- Minimal files: README.md, CLAUDE.md, LOG.md, the code, data/. No other documents.
+- Minimal files: README.md, CLAUDE.md, LOG.md, the code, runs/, and archive/ (the finished earlier work: its code, data/, runs and log). No other documents.
 - Plan first, wait for approval.
 
 ## Machine

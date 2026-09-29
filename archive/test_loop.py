@@ -599,7 +599,7 @@ def test_read_env_is_silent(tmp_path, capsys):
 
 def test_report_sanity_block_on_generation_zero(tmp_path):
     out = tmp_path / "report.json"
-    r = subprocess.run([sys.executable, "village.py", "report", "runs/gen0/one_in_20", "--out", str(out)],
+    r = subprocess.run([sys.executable, str(ROOT.parent / "village.py"), "report", "runs/gen0/one_in_20", "--out", str(out)],
                        capture_output=True, text=True, cwd=ROOT, env={**os.environ, "HF_HUB_OFFLINE": "1"})
     assert r.returncode == 0, r.stderr
     rep = json.loads(out.read_text())["runs/gen0/one_in_20"]

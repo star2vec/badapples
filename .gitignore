@@ -9,3 +9,7 @@ runs/**/*.log
 runs/**/freeform.jsonl
 .pytest_cache/
 runs/**/driver.pid
+archive/data/turner/
+archive/runs/**/*.log
+archive/runs/**/freeform.jsonl
+archive/runs/**/driver.pid

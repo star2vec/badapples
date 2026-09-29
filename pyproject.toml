@@ -12,3 +12,6 @@ dependencies = [
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]  # archive/ tests import pond and village from the root (LOG 2026-09-29)

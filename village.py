@@ -1777,11 +1777,11 @@ def cmd_controls(a):
     prompt's token count, completions rank-matched to the real selection's completion
     lengths). The two game sets go through the writer at the cap; the neutral set through the
     same cap rule. lengths.json holds the distributions side by side."""
-    import battery
+    from archive import battery
     import mlx.core as mx
     from mlx_lm import load
 
-    from control_data import _lengths as token_lengths
+    from archive.control_data import _lengths as token_lengths
 
     d = Path(a.village)
     pool, summary = _load_village(d)
