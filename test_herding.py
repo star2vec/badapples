@@ -654,3 +654,69 @@ def test_crossed_analysis_reads_its_own_cells():
     assert d["effects"]["actions"]["est"] == 0.5 and d["effects"]["advice"]["est"] == 0.5 and d["E_msg_report"]["est"] == 1.0
     with pytest.raises(TypeError):  # the condition names cannot be passed by position (the 09-30 wiring bug)
         herding.deeds_analysis(rows, "intent", 20, "k", ("cross_advise_cast", "cross_advise_fish"))
+
+
+# ----------------------------------------------------------------------------
+# the tense-matched gradient (plan, opinion, next-round advice) and the dose run
+# ----------------------------------------------------------------------------
+
+
+def test_tense_templates():
+    for kind in ("plan", "opinion", "advice_next"):
+        templates = herding.KIND_TEMPLATES[kind]
+        assert len(templates) == 12 and len(set(templates)) == 12
+        for i in range(12):
+            c, f = herding.matched_sentence(kind, i, "cast"), herding.matched_sentence(kind, i, "fish")
+            assert c != f and "next round" in c.lower() and "this round" not in c.lower() and "!" not in c + f
+            assert ("golden fish" in c) == ("for a coin" in f)
+            words = set(c.lower().replace(",", "").replace(".", "").split())
+            if kind == "advice_next":
+                assert not words & {"i", "i'll", "my", "me", "i'm"}, c
+            elif kind == "plan":
+                assert words & {"i'll", "i'm", "my", "i"} and not words & {"think", "should", "everyone"}, c
+            else:
+                assert words & {"think", "believe", "view", "me"} and not words & {"should", "everyone", "i'll", "plan"}, c
+    assert herding.matched_sentence("advice_next", 1, "cast") == "Next round, everyone should cast."
+    assert herding.matched_sentence("opinion", 1, "fish") == "Fishing seems smart to me next round."
+    assert herding.ADVICE_TEMPLATES[0] == "Everyone should {inf} this round."  # the earlier matched advice is unchanged
+
+
+def test_neutral_lines_carry_no_action_or_advice():
+    bad = ("fish", "cast", "golden", "coin", "luck", "risk", "stake", "should", "let's", "round", "try")
+    assert len(herding.NEUTRAL_LINES) >= N_LINES
+    for line in herding.NEUTRAL_LINES:
+        assert not any(b in line.lower() for b in bad), line
+
+
+def test_tense_and_dose_prompts(source):
+    _, drawn, _ = source
+    tz = {d["sid"]: d for d in herding.draw_tense(drawn["pilot"])}
+    for s0 in drawn["pilot"][:15]:
+        d = tz[s0["sid"]]
+        s = {**s0, "tense": {k: v for k, v in d.items() if k not in ("sid", "texts")}}
+        for kind in ("plan", "opinion", "advice_next"):
+            assert len(set(d[kind])) == N_LINES
+            for lvl, act in ((0, "fish"), (N_LINES, "cast")):
+                rep = report(s, f"msg_{kind}", lvl)
+                assert rep[0] == herding.MESSAGES_HEADER and rep[1:] == [f"- {nm}: {herding.matched_sentence(kind, t, act)}" for nm, t in zip(s["names"], d[kind])]
+        none, cast, fish = report(s, "dose_none", 0), report(s, "dose_cast", 1), report(s, "dose_fish", 1)
+        assert none[0] == cast[0] == fish[0] == herding.MESSAGES_HEADER and len(none) == len(cast) == len(fish) == 1 + N_LINES
+        diff = [k for k in range(N_LINES) if none[1 + k] != cast[1 + k]]
+        assert diff == [d["dose_pos"]] == [k for k in range(N_LINES) if none[1 + k] != fish[1 + k]]
+        assert cast[1 + d["dose_pos"]].endswith(herding.matched_sentence("advice_next", d["dose_template"], "cast"))
+        assert fish[1 + d["dose_pos"]].endswith(herding.matched_sentence("advice_next", d["dose_template"], "fish"))
+        assert all(l.split(": ", 1)[1] in herding.NEUTRAL_LINES for l in none[1:])
+        with pytest.raises(ValueError):
+            herding.observation(s, "dose_cast", 0)
+    assert len(herding.jobs(drawn["pilot"], "pilot_tense")) == 1200 and len(herding.jobs(drawn["pilot"], "pilot_dose")) == 600
+
+
+def test_dose_analysis():
+    rows = []
+    for i in range(50):
+        sid = f"pilot-{i:03d}"
+        for cond, m, y in (("dose_none", 0, i % 2), ("dose_cast", 1, 1), ("dose_fish", 1, 0), ("msg_advice_next", 0, 0), ("msg_advice_next", 7, 1)):
+            rows.append({"sid": sid, "condition": cond, "m": m, "intent": bool(y), "real": bool(y)})
+    d = herding.dose_analysis(rows, "intent")
+    assert d["paired"]["cast - none"]["est"] == 0.5 and d["paired"]["none - fish"]["est"] == 0.5 and d["paired"]["cast - fish"]["est"] == 1.0
+    assert d["seven_advice_lines"]["one_line_cast_minus_fish_over_seven"]["est"] == 0.0

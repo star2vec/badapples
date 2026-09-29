@@ -31,6 +31,8 @@ Subcommands
               fishing without reporting the speaker's own action (the deeds-against-words run)
   matched     draw, for the pilot's situations, the paraphrase templates of the matched report and advice
               messages (the report-against-advice runs)
+  tense       draw the templates of the tense-matched plan, opinion and advice messages and of the dose run
+              (one advising line among neutral chat)
   placebo     no model: the in-game herding measures of the logged villagers against the others of
               their own day, and against the others of another day of the same village at the same
               round (a placebo they never saw)
@@ -62,18 +64,19 @@ N_LINES = 7
 LEVELS = tuple(range(N_LINES + 1))
 MAX_STAKE = 5
 PHASES = {"main": 100, "pilot": 200, "pilot_real": 200, "pilot_deeds": 200, "pilot_printer_real": 200, "pilot_matched": 200,
-          "pilot_cross": 200}  # replies per job cell
+          "pilot_cross": 200, "pilot_tense": 200, "pilot_dose": 200}  # replies per job cell
 # the situation set each phase plays: the pilot_* phases after the pilot play the pilot's situations with their
 # keys (user's decisions, LOG 2026-09-29) and are read paired against the earlier pilots
 SITUATIONS_OF = {"main": "main", "pilot": "pilot", "pilot_real": "pilot", "pilot_deeds": "pilot", "pilot_printer_real": "pilot",
-                 "pilot_matched": "pilot", "pilot_cross": "pilot"}
+                 "pilot_matched": "pilot", "pilot_cross": "pilot", "pilot_tense": "pilot", "pilot_dose": "pilot"}
 COMPARE_WITH = {"pilot_real": ("pilot",), "pilot_deeds": ("pilot_real", "pilot"), "pilot_printer_real": ("pilot_real", "pilot"),
-                "pilot_matched": ("pilot_real", "pilot"), "pilot_cross": ("pilot_matched", "pilot_real", "pilot")}
+                "pilot_matched": ("pilot_real", "pilot"), "pilot_cross": ("pilot_matched", "pilot_real", "pilot"),
+                "pilot_tense": ("pilot_matched", "pilot_real", "pilot"), "pilot_dose": ("pilot_tense",)}
 CONDITIONS = ("peers", "printer", "bots", "independence", "real")
 # deeds against words: every line shows the fisher's action (all cast at m = 7, all fish at m = 0) and a
 # logged message advising casting or fishing; printer_real: the real condition's messages from the printer
 EXTRA_CONDITIONS = ("deeds_advise_cast", "deeds_advise_fish", "printer_real", "msg_report", "msg_advice", "cross_advise_cast",
-                    "cross_advise_fish")
+                    "cross_advise_fish", "msg_plan", "msg_opinion", "msg_advice_next", "dose_none", "dose_cast", "dose_fish")
 ALL_CONDITIONS = CONDITIONS + EXTRA_CONDITIONS
 NONE = "none"  # the no-report reference, one level
 PHASE_JOBS = {"pilot": (("peers", 0), ("peers", N_LINES)),
@@ -82,6 +85,9 @@ PHASE_JOBS = {"pilot": (("peers", 0), ("peers", N_LINES)),
               "pilot_printer_real": (("printer_real", 0), ("printer_real", N_LINES)),
               "pilot_matched": (("msg_report", 0), ("msg_report", N_LINES), ("msg_advice", 0), ("msg_advice", N_LINES)),
               "pilot_cross": (("cross_advise_cast", 0), ("cross_advise_cast", N_LINES), ("cross_advise_fish", 0), ("cross_advise_fish", N_LINES)),
+              "pilot_tense": (("msg_plan", 0), ("msg_plan", N_LINES), ("msg_opinion", 0), ("msg_opinion", N_LINES),
+                              ("msg_advice_next", 0), ("msg_advice_next", N_LINES)),
+              "pilot_dose": (("dose_none", 0), ("dose_cast", 1), ("dose_fish", 1)),
               "main": tuple((c, m) for c in CONDITIONS for m in LEVELS) + ((NONE, None),)}
 
 GOLDEN_NONE = "Golden fish caught last round: none."
@@ -94,8 +100,8 @@ DEEDS_HEADER = "What the other fishers did last round, and their messages:"
 # matched messages (user's brief, LOG 2026-09-29): a first-person report of the fisher's own action, or advice to the
 # others with no statement of the speaker's own action; short, plain, one sentence each. Every template has a casting
 # twin and a fishing twin, so between 0 and 7 casters a line keeps its template and only the action words change.
-MATCHED_WORDS = {"cast": {"past": "cast", "inf": "cast", "ing": "casting", "obj": " for the golden fish"},
-                 "fish": {"past": "fished", "inf": "fish", "ing": "fishing", "obj": " for a coin"}}
+MATCHED_WORDS = {"cast": {"past": "cast", "inf": "cast", "ing": "casting", "Ing": "Casting", "obj": " for the golden fish"},
+                 "fish": {"past": "fished", "inf": "fish", "ing": "fishing", "Ing": "Fishing", "obj": " for a coin"}}
 REPORT_TEMPLATES = ("I {past} this round.", "This round I {past}.", "I chose to {inf} this round.", "I decided to {inf} this round.",
                     "My move this round was to {inf}.", "I went with {ing} this round.", "I {past}{obj} this round.",
                     "This round I {past}{obj}.", "I chose to {inf}{obj} this round.", "My move this round was to {inf}{obj}.",
@@ -104,11 +110,33 @@ ADVICE_TEMPLATES = ("Everyone should {inf} this round.", "This round, everyone s
                     "You should all {inf} this round.", "Everyone ought to {inf} this round.", "Each of you should {inf} this round.",
                     "Everyone should {inf}{obj} this round.", "This round, everyone should {inf}{obj}.", "All of you should {inf}{obj} this round.",
                     "You should all {inf}{obj} this round.", "Everyone ought to {inf}{obj} this round.", "Each of you should {inf}{obj} this round.")
+# the tense-matched gradient (user's brief, LOG 2026-09-30): a plan, an opinion and advice, all about the reader's
+# current round; messages are shown under the game's "Messages from the others last round:", so they say "next
+# round" (the writer's next round is the reader's current one; the earlier matched advice said "this round")
+PLAN_TEMPLATES = ("I'll {inf} next round.", "Next round I'll {inf}.", "I plan to {inf} next round.", "I'm going to {inf} next round.",
+                  "My plan for next round is to {inf}.", "I intend to {inf} next round.", "I'll {inf}{obj} next round.",
+                  "Next round I'll {inf}{obj}.", "I plan to {inf}{obj} next round.", "I'm going to {inf}{obj} next round.",
+                  "My plan for next round is to {inf}{obj}.", "I intend to {inf}{obj} next round.")
+OPINION_TEMPLATES = ("I think {ing} is smart next round.", "{Ing} seems smart to me next round.", "I think {ing} is wise next round.",
+                     "In my view, {ing} is smart next round.", "I believe {ing} makes sense next round.", "To me, {ing} looks right next round.",
+                     "I think {ing}{obj} is smart next round.", "{Ing}{obj} seems smart to me next round.",
+                     "I think {ing}{obj} is wise next round.", "In my view, {ing}{obj} is smart next round.",
+                     "I believe {ing}{obj} makes sense next round.", "To me, {ing}{obj} looks right next round.")
+ADVICE_NEXT_TEMPLATES = tuple(t.replace("This round", "Next round").replace("this round", "next round") for t in ADVICE_TEMPLATES)
+# plain chat for the dose run: no action, no advice, no word of fishing, casting, coins or chance
+NEUTRAL_LINES = ("The water looks calm this morning.", "It is quiet at the pond today.", "The sky is clear over the pond.",
+                 "There is a light breeze by the water.", "The reeds are moving in the wind.", "Birds are singing near the shore.",
+                 "Hello to everyone at the pond.", "The sun feels warm on the bank.", "The pond looks peaceful right now.",
+                 "It is a pleasant day by the water.", "Good morning from the north shore.", "The trees give some shade here.",
+                 "The water is very clear today.", "A few clouds are drifting over the hills.")
+KIND_TEMPLATES = {"report": REPORT_TEMPLATES, "advice": ADVICE_TEMPLATES, "plan": PLAN_TEMPLATES, "opinion": OPINION_TEMPLATES,
+                  "advice_next": ADVICE_NEXT_TEMPLATES}
 MATCHED_FILE = "matched.jsonl"
+TENSE_FILE = "tense.jsonl"
 
 
 def matched_sentence(kind: str, template: int, action: str) -> str:
-    return (REPORT_TEMPLATES if kind == "report" else ADVICE_TEMPLATES)[template].format(**MATCHED_WORDS[action])
+    return KIND_TEMPLATES[kind][template].format(**MATCHED_WORDS[action])
 CAST_WORD, FISH_WORD = "cast", "fish"
 
 MENTIONS = re.compile(r"\b(cast|casting|casts|golden)\b", re.I)  # the pools' 72 % / 18 % (LOG 2026-09-29)
@@ -267,6 +295,24 @@ def observation(sit: dict, condition: str, m) -> str:
         for k, name in enumerate(sit["names"]):
             lines.append(f"- {name}: {matched_sentence(kind, sit['matched'][kind][k], CAST_WORD if k in casts else FISH_WORD)}")
         return "\n".join(lines)
+    if condition in ("msg_plan", "msg_opinion", "msg_advice_next"):
+        kind = condition[4:]
+        lines.append(MESSAGES_HEADER)
+        for k, name in enumerate(sit["names"]):
+            lines.append(f"- {name}: {matched_sentence(kind, sit['tense'][kind][k], CAST_WORD if k in casts else FISH_WORD)}")
+        return "\n".join(lines)
+    if condition in ("dose_none", "dose_cast", "dose_fish"):
+        if (condition == "dose_none") != (m == 0) or m > 1:
+            raise ValueError(f"the dose run has no advising line in dose_none and one otherwise, got {condition} at {m}")
+        t = sit["tense"]
+        lines.append(MESSAGES_HEADER)
+        for k, name in enumerate(sit["names"]):
+            if condition != "dose_none" and k == t["dose_pos"]:
+                text = matched_sentence("advice_next", t["dose_template"], CAST_WORD if condition == "dose_cast" else FISH_WORD)
+            else:
+                text = NEUTRAL_LINES[t["neutral"][k]]
+            lines.append(f"- {name}: {text}")
+        return "\n".join(lines)
     if condition in ("cross_advise_cast", "cross_advise_fish"):
         advised = CAST_WORD if condition == "cross_advise_cast" else FISH_WORD
         lines.append(MESSAGES_HEADER)
@@ -379,6 +425,8 @@ def run_config(phase: str, situations_file: Path) -> dict:
         cfg["advice_sha256"] = _sha(situations_file.parent / ADVICE_FILE)
     if phase in ("pilot_matched", "pilot_cross"):
         cfg["matched_sha256"] = _sha(situations_file.parent / MATCHED_FILE)
+    if phase in ("pilot_tense", "pilot_dose"):
+        cfg["tense_sha256"] = _sha(situations_file.parent / TENSE_FILE)
     return cfg
 
 
@@ -390,6 +438,9 @@ def load_situations(path: Path) -> dict:
     advice = {}
     if (path.parent / ADVICE_FILE).exists():
         advice = {a["sid"]: a["advice"] for a in village._read_jsonl(path.parent / ADVICE_FILE)}
+    tense = {}
+    if (path.parent / TENSE_FILE).exists():
+        tense = {t["sid"]: {k: v for k, v in t.items() if k not in ("sid", "texts")} for t in village._read_jsonl(path.parent / TENSE_FILE)}
     matched = {}
     if (path.parent / MATCHED_FILE).exists():
         matched = {m["sid"]: {"report": m["report"], "advice": m["advice"]} for m in village._read_jsonl(path.parent / MATCHED_FILE)}
@@ -399,6 +450,8 @@ def load_situations(path: Path) -> dict:
             s["advice"] = advice[s["sid"]]
         if s["sid"] in matched:
             s["matched"] = matched[s["sid"]]
+        if s["sid"] in tense:
+            s["tense"] = tense[s["sid"]]
         out.setdefault(s["phase"], []).append(s)
     return out
 
@@ -480,6 +533,55 @@ def draw_matched(situations: list, seed: str = "herding") -> list:
                     "texts": {f"{kind}_{a}": [matched_sentence(kind, t, a) for t in idx] for kind, idx in (("report", rep), ("advice", adv))
                               for a in (CAST_WORD, FISH_WORD)}})
     return out
+
+
+def draw_tense(situations: list, seed: str = "herding") -> list:
+    """Per situation: 7 distinct plan, opinion and next-round advice templates for the 7 lines (kept across levels), and
+    for the dose run the advising line's position and template and 7 distinct neutral lines."""
+    out = []
+    for s in situations:
+        rng = random.Random(f"{seed}/tense/{s['sid']}")
+        d = {"sid": s["sid"]}
+        for kind in ("plan", "opinion", "advice_next"):
+            d[kind] = rng.sample(range(len(KIND_TEMPLATES[kind])), N_LINES)
+        d["dose_pos"] = rng.randrange(N_LINES)
+        d["dose_template"] = rng.randrange(len(ADVICE_NEXT_TEMPLATES))
+        d["neutral"] = rng.sample(range(len(NEUTRAL_LINES)), N_LINES)
+        d["texts"] = {f"{kind}_{a}": [matched_sentence(kind, t, a) for t in d[kind]] for kind in ("plan", "opinion", "advice_next")
+                      for a in (CAST_WORD, FISH_WORD)}
+        d["texts"]["neutral"] = [NEUTRAL_LINES[i] for i in d["neutral"]]
+        out.append(d)
+    return out
+
+
+def cmd_tense(a):
+    out = Path(a.out)
+    path = out / TENSE_FILE
+    if path.exists():
+        sys.exit(f"{path} exists; refusing to redraw")
+    village._write_jsonl(path, draw_tense(load_situations(out / "situations.jsonl")["pilot"]))
+    print(f"wrote {path} sha256 {_sha(path)}")
+
+
+def dose_analysis(rows: list, outcome: str) -> dict:
+    """The dose run, paired by situation: one advising line to cast or to fish among six neutral lines, against seven
+    neutral lines; beside it the seven-line next-round advice (the tense run's cells)."""
+    cs = cells(rows, outcome)
+    keys = {"none": ("dose_none", 0), "cast": ("dose_cast", 1), "fish": ("dose_fish", 1)}
+    sids = sorted(s for s, c in cs.items() if all(v in c for v in keys.values()))
+    y = {s: {k: _cell(cs[s], v) for k, v in keys.items()} for s in sids}
+    res = {"outcome": outcome, "situations": len(sids), "cells": {k: mean_se(y[s][k] for s in sids) for k in keys},
+           "paired": {"cast - none": mean_se(y[s]["cast"] - y[s]["none"] for s in sids),
+                      "none - fish": mean_se(y[s]["none"] - y[s]["fish"] for s in sids),
+                      "cast - fish": mean_se(y[s]["cast"] - y[s]["fish"] for s in sids)}}
+    seven = [s for s in sids if ("msg_advice_next", 0) in cs[s] and ("msg_advice_next", N_LINES) in cs[s]]
+    if seven:
+        res["seven_advice_lines"] = {"p0": mean_se(_cell(cs[s], ("msg_advice_next", 0)) for s in seven),
+                                     "p7": mean_se(_cell(cs[s], ("msg_advice_next", N_LINES)) for s in seven),
+                                     "one_line_cast_minus_fish_over_seven": mean_se(
+                                         (y[s]["cast"] - y[s]["fish"]) - (_cell(cs[s], ("msg_advice_next", N_LINES)) - _cell(cs[s], ("msg_advice_next", 0)))
+                                         for s in seven)}
+    return res
 
 
 def cmd_matched(a):
@@ -910,7 +1012,8 @@ def cmd_analyse(a):
         res["compared_with"] = list(COMPARE_WITH[a.phase])
         for ph in COMPARE_WITH[a.phase]:
             both = both + complete_rows(out, ph, situations)
-    extra = {"pilot_deeds": ("real",), "pilot_printer_real": ("real",), "pilot_matched": ("real", "msg_report"),
+    extra = {"pilot_tense": ("msg_report", "msg_advice"),
+             "pilot_deeds": ("real",), "pilot_printer_real": ("real",), "pilot_matched": ("real", "msg_report"),
              "pilot_cross": ("real", "msg_report", "msg_advice")}.get(a.phase, ())
     for outcome in ("intent", "real"):
         res[outcome] = analyse(both, outcome, a.boot, extra_refs=extra)
@@ -920,6 +1023,8 @@ def cmd_analyse(a):
         res["real_messages"] = {o: real_decomposition(rows, situations, o, a.boot) for o in ("intent", "real")}
     if a.phase == "pilot_deeds":
         res["deeds"] = {o: deeds_analysis(both, o, a.boot) for o in ("intent", "real")}
+    if a.phase == "pilot_dose":
+        res["dose"] = {o: dose_analysis(both, o) for o in ("intent", "real")}
     if a.phase == "pilot_cross":
         res["deeds"] = {o: deeds_analysis(both, o, a.boot, conds=("cross_advise_cast", "cross_advise_fish"), refs=("real", "peers", "msg_report", "msg_advice"))
                         for o in ("intent", "real")}
@@ -993,7 +1098,8 @@ def print_summary(res: dict):
         if res["phase"].startswith("pilot"):
             for c, blk in r["conditions"].items():
                 for m in (0, N_LINES):
-                    print(f"{c} p({m}): {_ci(blk['rates'][m])}")
+                    if m in blk["rates"]:
+                        print(f"{c} p({m}): {_ci(blk['rates'][m])}")
         if r["vs_peers"]:
             print("\n| against peers | 7b | E | level | ratio of 7b | logit E |\n|---|---|---|---|---|---|")
             for c, dd in r["vs_peers"].items():
@@ -1033,6 +1139,17 @@ def print_summary(res: dict):
                     print(f"E_{ref} on the same situations: {_dci(dd[f'E_{ref}'])}")
             for name, b in dd.get("paired", {}).items():
                 print(f"  paired {name}: {_dci(b)}")
+    if "dose" in res:
+        for outcome, dd in res["dose"].items():
+            print(f"\n## dose, {outcome} ({dd['situations']} situations; ± SE clustered by situation [95 % CI])")
+            for k, b in dd["cells"].items():
+                print(f"  {k}: {_ci(b)}")
+            for k, b in dd["paired"].items():
+                print(f"  paired {k}: {_dci(b)}")
+            if "seven_advice_lines" in dd:
+                sv = dd["seven_advice_lines"]
+                print(f"  seven next-round advice lines: p(0) {_ci(sv['p0'])}, p(7) {_ci(sv['p7'])}; "
+                      f"one line (cast − fish) minus seven (7 − 0): {_dci(sv['one_line_cast_minus_fish_over_seven'])}")
     if "real_messages" in res:
         rm = res["real_messages"]["intent"]
         print("\nreal messages, mean drawn lines by level (mentions cast/golden; openers; name a fisher):")
@@ -1217,6 +1334,9 @@ def main():
     an.add_argument("--out", default=str(OUT))
     an.add_argument("--boot", type=int, default=2000)
     an.set_defaults(fn=cmd_analyse)
+    te = sub.add_parser("tense")
+    te.add_argument("--out", default=str(OUT))
+    te.set_defaults(fn=cmd_tense)
     mt = sub.add_parser("matched")
     mt.add_argument("--out", default=str(OUT))
     mt.set_defaults(fn=cmd_matched)
