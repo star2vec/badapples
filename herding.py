@@ -27,6 +27,9 @@ Subcommands
   situations  draw the main run's 100 and the pilot's 200 situations (disjoint agent-days)
   run         play a phase's jobs under the base model; resumable
   analyse     the tables for LOG.md
+  placebo     no model: the in-game herding measures of the logged villagers against the others of
+              their own day, and against the others of another day of the same village at the same
+              round (a placebo they never saw)
 
 timing.jsonl rows come from village.ModelPlayers: their round and episode are the first request's
 situation round and index, and carry no meaning here.
@@ -54,10 +57,15 @@ OUT = Path("runs/herding")
 N_LINES = 7
 LEVELS = tuple(range(N_LINES + 1))
 MAX_STAKE = 5
-PHASES = {"main": 100, "pilot": 200}  # situations per phase (user's brief and plan, LOG 2026-09-29)
+PHASES = {"main": 100, "pilot": 200, "pilot_real": 200}  # replies per job cell (user's brief and plan, LOG 2026-09-29)
+# the situation set each phase plays: pilot_real is the real-messages condition at 0 and 7 on the pilot's
+# situations and keys (user's decision after the pilot, LOG 2026-09-29), read paired against the peers pilot
+SITUATIONS_OF = {"main": "main", "pilot": "pilot", "pilot_real": "pilot"}
+COMPARE_WITH = {"pilot_real": "pilot"}
 CONDITIONS = ("peers", "printer", "bots", "independence", "real")
 NONE = "none"  # the no-report reference, one level
 PHASE_JOBS = {"pilot": (("peers", 0), ("peers", N_LINES)),
+              "pilot_real": (("real", 0), ("real", N_LINES)),
               "main": tuple((c, m) for c in CONDITIONS for m in LEVELS) + ((NONE, None),)}
 
 GOLDEN_NONE = "Golden fish caught last round: none."
@@ -339,7 +347,7 @@ def cmd_run(a):
 
     out = Path(a.out)
     sfile = out / "situations.jsonl"
-    situations = load_situations(sfile)[a.phase]
+    situations = load_situations(sfile)[SITUATIONS_OF[a.phase]]
     d = out / a.phase
     d.mkdir(parents=True, exist_ok=True)
     cfg = run_config(a.phase, sfile)
@@ -464,7 +472,9 @@ def per_situation(cs: dict, cond: str) -> dict:
         ys = {m: _cell(c, (cond, m)) for m in LEVELS if (cond, m) in c}
         if len(ys) < 2 or 0 not in ys or N_LINES not in ys:
             continue
-        out[sid] = {"E": ys[N_LINES] - ys[0], "7b": N_LINES * slope(ys), "level": sum(ys.values()) / len(ys), "ys": ys}
+        out[sid] = {"E": ys[N_LINES] - ys[0], "level": sum(ys.values()) / len(ys), "ys": ys}
+        if len(ys) > 2:
+            out[sid]["7b"] = N_LINES * slope(ys)
     return out
 
 
@@ -537,6 +547,8 @@ def analyse(rows: list, outcome: str, n_boot: int = 2000, key: str = "herding/bo
             both = sorted(set(per[c]) & set(per["peers"]))
             d = {}
             for q in ("E", "7b", "level"):
+                if not all(q in per[c][s] and q in per["peers"][s] for s in both):
+                    continue
                 diff = {s: per[c][s][q] - per["peers"][s][q] for s in both}
                 d[q] = mean_se(diff[s] for s in both)
                 d[q]["boot"] = boot_ci(both, diff, n_boot, f"{key}/vs_peers/{q}/{c}/{outcome}")
@@ -545,8 +557,9 @@ def analyse(rows: list, outcome: str, n_boot: int = 2000, key: str = "herding/bo
                 den = sum(per["peers"][s]["7b"] for s in b)
                 return sum(per[c][s]["7b"] for s in b) / den if den else None
 
-            rv = boot(both, ratio, n_boot, f"{key}/ratio/{c}/{outcome}")
-            d["ratio_7b"] = {"est": ratio(both), "lo": pct(rv, 0.025), "hi": pct(rv, 0.975)}
+            if "7b" in d:
+                rv = boot(both, ratio, n_boot, f"{key}/ratio/{c}/{outcome}")
+                d["ratio_7b"] = {"est": ratio(both), "lo": pct(rv, 0.025), "hi": pct(rv, 0.975)}
             lv = boot(both, lambda b, c=c: logit_E(cs, b, c) - logit_E(cs, b, "peers"), n_boot, f"{key}/dlogit/{c}/{outcome}")
             d["logit_E"] = {"est": logit_E(cs, both, c) - logit_E(cs, both, "peers"), "lo": pct(lv, 0.025), "hi": pct(lv, 0.975)}
             res["vs_peers"][c] = d
@@ -685,24 +698,34 @@ def cmd_analyse(a):
     out = Path(a.out)
     situations = {s["sid"]: s for ph in load_situations(out / "situations.jsonl").values() for s in ph}
     d = out / a.phase
-    rows = read_rows(d / "replies.jsonl")
-    try:
-        check_rows(rows, situations)
-    except ValueError as err:
-        sys.exit(str(err))
-    want = len(PHASE_JOBS[a.phase]) * PHASES[a.phase]
-    if len(rows) != want or len({r["job"] for r in rows}) != want:
-        sys.exit(f"{a.phase}: {len(rows)} rows ({len({r['job'] for r in rows})} distinct) of {want}; not complete")
+    rows = complete_rows(out, a.phase, situations)
     res = {"phase": a.phase, "rows": len(rows), "failed": sum(r["failed"] for r in rows),
            "attempts": sum(r["attempt"] for r in rows), "descriptives": descriptives(rows, situations)}
+    both = rows
+    if a.phase in COMPARE_WITH:
+        res["compared_with"] = COMPARE_WITH[a.phase]
+        both = rows + complete_rows(out, COMPARE_WITH[a.phase], situations)
     for outcome in ("intent", "real"):
-        res[outcome] = analyse(rows, outcome, a.boot)
+        res[outcome] = analyse(both, outcome, a.boot)
     if a.phase == "pilot":
         res["resolving_power"] = resolving_power(rows, PHASES["main"])
     else:
         res["real_messages"] = {o: real_decomposition(rows, situations, o, a.boot) for o in ("intent", "real")}
     (d / "summary.json").write_text(json.dumps(res, indent=1, default=str) + "\n")
     print_summary(res)
+
+
+def complete_rows(out: Path, phase: str, situations: dict) -> list:
+    """A phase's rows, refused unless every job is there once and every row matches the current prompt."""
+    rows = read_rows(out / phase / "replies.jsonl")
+    try:
+        check_rows(rows, situations)
+    except ValueError as err:
+        sys.exit(str(err))
+    want = len(PHASE_JOBS[phase]) * PHASES[phase]
+    if len(rows) != want or len({r["job"] for r in rows}) != want:
+        sys.exit(f"{phase}: {len(rows)} rows ({len({r['job'] for r in rows})} distinct) of {want}; not complete")
+    return rows
 
 
 def print_summary(res: dict):
@@ -722,13 +745,15 @@ def print_summary(res: dict):
                   f"{_dci(blk['logit_E']) if 'logit_E' in blk else ''} |")
         if "none" in r:
             print(f"\nno report: {_ci(r['none'])}")
-        if "resolving_power" in res:
-            for m in (0, N_LINES):
-                print(f"peers p({m}): {_ci(r['conditions']['peers']['rates'][m])}")
+        if res["phase"].startswith("pilot"):
+            for c, blk in r["conditions"].items():
+                for m in (0, N_LINES):
+                    print(f"{c} p({m}): {_ci(blk['rates'][m])}")
         if r["vs_peers"]:
             print("\n| against peers | 7b | E | level | ratio of 7b | logit E |\n|---|---|---|---|---|---|")
             for c, dd in r["vs_peers"].items():
-                print(f"| {c} − peers | {_dci(dd['7b'])} | {_dci(dd['E'])} | {_dci(dd['level'])} | {_dci(dd['ratio_7b'])} | {_dci(dd['logit_E'])} |")
+                cols = [_dci(dd[q]) if q in dd else "" for q in ("7b", "E", "level", "ratio_7b", "logit_E")]
+                print(f"| {c} − peers | " + " | ".join(cols) + " |")
         if "printer_vs_bots" in r:
             pb = r["printer_vs_bots"]
             print(f"| printer − bots | {_dci(pb['7b'])} | {_dci(pb['E'])} | {_dci(pb['level'])} | | |")
@@ -752,6 +777,166 @@ def print_summary(res: dict):
             print(f"  intent ~ m + k + situation FE: {name} {_dci(b)}")
 
 
+# ----------------------------------------------------------------------------
+# logged play: the other-day placebo (no model; user's decision, LOG 2026-09-29)
+# ----------------------------------------------------------------------------
+# Each logged villager turn from round 2 on is an observer row. Its "others" are the other agents
+# present in round r - 1 of its own village-day (what its messages came from), or, for the placebo,
+# of another day of the same village at the same round (which it never saw). Real minus placebo is
+# the association specific to the same day: copying through the messages plus anything else the
+# day shares (earlier events and messages, the day's Yesterday line). The placebo is what any day
+# at that round gives: the round profile, the village, the observer's own state.
+
+
+def day_rows(pool, day: int, src_day: int, label: str = "") -> list:
+    """Observer rows of one village-day with the others taken from src_day (day itself for the real
+    rows): (round, x, m, n, intent, real, none_won). none_won: no other agent of the observer's own
+    day won in round r - 1 (the observer's event line said none), whatever src_day is."""
+    by, agents = village._context(pool)
+    rows = []
+    for ep in pool:
+        if ep.episode != day:
+            continue
+        block = []
+        for t in ep.turns:
+            if t.round < 2:
+                continue
+            r = t.round - 1
+            own_day = [by[(day, r, a)] for a in agents if a != ep.agent and (day, r, a) in by]
+            others = own_day if src_day == day else [by[(src_day, r, a)] for a in agents if a != ep.agent and (src_day, r, a) in by]
+            if not others:
+                continue
+            m = sum(1 for o in others if village.is_cast(o))
+            block.append((t.round, m / len(others), m, len(others), village.is_cast(t) or village.is_attempt(t), village.is_cast(t),
+                          not any(o.won for o in own_day)))
+        rows.append(((label, day, ep.agent), block))
+    return rows
+
+
+PLACEBO_OUTCOMES = ("intent", "real")
+PLACEBO_SUBSETS = ("none_won", "all")
+
+
+def placebo_stats(blocks: list) -> dict:
+    """blocks: [(agent-day id, rows)]. Per subset (rounds after no winner / all) and outcome: the
+    herding slope (village.herding_slope_rows: agent-day fixed effect and round dummies), the raw
+    E among rows with 7 others present (cast rate at m = 7 minus at m = 0), and the raw OLS slope on
+    the cast share."""
+    out = {}
+    for sub in PLACEBO_SUBSETS:
+        for oi, outcome in enumerate(PLACEBO_OUTCOMES):
+            fe_blocks, n7 = [], {0: [0, 0], N_LINES: [0, 0]}
+            xs, ys = [], []
+            for _, rows in blocks:
+                keep = [r for r in rows if sub == "all" or r[6]]
+                fe_blocks.append([(None, None, r[2], r[0], r[1], r[4 + oi], None, None) for r in keep])
+                for r in keep:
+                    y = 1.0 if r[4 + oi] else 0.0
+                    xs.append(r[1])
+                    ys.append(y)
+                    if r[3] == N_LINES and r[2] in n7:
+                        n7[r[2]][0] += 1
+                        n7[r[2]][1] += y
+            xb, yb = sum(xs) / len(xs), sum(ys) / len(ys)
+            sxx = sum((x - xb) ** 2 for x in xs)
+            raw = sum((x - xb) * (y - yb) for x, y in zip(xs, ys)) / sxx if sxx else None
+            p0 = n7[0][1] / n7[0][0] if n7[0][0] else None
+            p7 = n7[N_LINES][1] / n7[N_LINES][0] if n7[N_LINES][0] else None
+            out[f"{sub}/{outcome}"] = {"fe_slope": village.herding_slope_rows(fe_blocks), "raw_slope": raw,
+                                       "p0": p0, "p7": p7, "E_raw": (p7 - p0) if p0 is not None and p7 is not None else None,
+                                       "n0": n7[0][0], "n7": n7[N_LINES][0], "rows": len(xs)}
+    return out
+
+
+def derangement(days: list, rng: random.Random) -> dict:
+    while True:
+        perm = days[:]
+        rng.shuffle(perm)
+        if all(a != b for a, b in zip(days, perm)):
+            return dict(zip(days, perm))
+
+
+def placebo_analysis(pools: dict, perms: int, boot_n: int, boot_perms: int, key: str = "herding/placebo") -> dict:
+    """Real statistics with a village-day bootstrap (stratified by village), the placebo's
+    distribution over random derangements of the days within each village, and real minus the
+    placebo mean with a bootstrap SE (each resample: its real statistic minus the mean over
+    boot_perms derangements)."""
+    days = {v: sorted({ep.episode for ep in pool}) for v, pool in pools.items()}
+    real = {(v, d): day_rows(pools[v], d, d, v) for v in pools for d in days[v]}
+    cache = {}
+
+    def other(v, d, d2):
+        if (v, d, d2) not in cache:
+            cache[(v, d, d2)] = day_rows(pools[v], d, d2, v)
+        return cache[(v, d, d2)]
+
+    def blocks_of(pairs):
+        return [b for pair in pairs for b in pair]
+
+    res = {"villages": sorted(pools), "days": {v: len(days[v]) for v in pools}}
+    res["real"] = placebo_stats(blocks_of(real[(v, d)] for v in pools for d in days[v]))
+    rng = random.Random(f"{key}/perm")
+    draws = []
+    for _ in range(perms):
+        der = {v: derangement(days[v], rng) for v in pools}
+        draws.append(placebo_stats(blocks_of(other(v, d, der[v][d]) for v in pools for d in days[v])))
+    res["placebo"] = {}
+    for k in res["real"]:
+        res["placebo"][k] = {}
+        for q in ("fe_slope", "raw_slope", "E_raw", "p0", "p7"):
+            vals = [dr[k][q] for dr in draws if dr[k][q] is not None]
+            res["placebo"][k][q] = {"mean": sum(vals) / len(vals), "sd": statistics.stdev(vals), "lo": pct(vals, 0.025), "hi": pct(vals, 0.975)}
+    brng = random.Random(f"{key}/boot")
+    reals, diffs = [], []
+    for _ in range(boot_n):
+        pick = [(v, days[v][brng.randrange(len(days[v]))]) for v in pools for _ in days[v]]
+        rb = []
+        for n, (v, d) in enumerate(pick):
+            rb.extend(((f"{n}",) + aid, rows) for aid, rows in real[(v, d)])
+        rs = placebo_stats(rb)
+        pls = []
+        for _ in range(boot_perms):
+            pb = []
+            for n, (v, d) in enumerate(pick):
+                d2 = days[v][brng.randrange(len(days[v]))]
+                while d2 == d:
+                    d2 = days[v][brng.randrange(len(days[v]))]
+                pb.extend(((f"{n}",) + aid, rows) for aid, rows in other(v, d, d2))
+            pls.append(placebo_stats(pb))
+        reals.append(rs)
+        diffs.append({k: {q: (rs[k][q] - statistics.mean(p[k][q] for p in pls)) if rs[k][q] is not None and all(p[k][q] is not None for p in pls) else None
+                          for q in ("fe_slope", "raw_slope", "E_raw")} for k in rs})
+    res["real_se"] = {k: {q: statistics.stdev([b[k][q] for b in reals if b[k][q] is not None]) for q in ("fe_slope", "raw_slope", "E_raw", "p0", "p7")}
+                      for k in res["real"]}
+    res["real_minus_placebo"] = {}
+    for k in res["real"]:
+        res["real_minus_placebo"][k] = {}
+        for q in ("fe_slope", "raw_slope", "E_raw"):
+            vals = [dd[k][q] for dd in diffs if dd[k][q] is not None]
+            res["real_minus_placebo"][k][q] = {"est": res["real"][k][q] - res["placebo"][k][q]["mean"], "se": statistics.stdev(vals),
+                                               "lo": pct(vals, 0.025), "hi": pct(vals, 0.975)}
+    res["settings"] = {"perms": perms, "boot": boot_n, "boot_perms": boot_perms, "key": key}
+    return res
+
+
+def cmd_placebo(a):
+    pools = {v: village._load_pool(SOURCE / v) for v in SOURCE_VILLAGES}
+    res = placebo_analysis(pools, a.perms, a.boot, a.boot_perms)
+    path = Path(a.out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(res, indent=1) + "\n")
+    print(f"logged villagers {', '.join(res['villages'])} (30 days each); placebo: {a.perms} derangements of the days within each village; "
+          f"real SE: {a.boot} village-day bootstrap resamples")
+    for k in res["real"]:
+        r, pl, se, dd = res["real"][k], res["placebo"][k], res["real_se"][k], res["real_minus_placebo"][k]
+        print(f"\n## {k} ({r['rows']} observer rows; raw E over rows with 7 others: n(m=0) {r['n0']}, n(m=7) {r['n7']})")
+        print("| measure | real others ± SE | other-day placebo, mean [95 % range] | real − placebo ± SE [95 %] |\n|---|---|---|---|")
+        for q, name in (("fe_slope", "herding slope, agent-day FE + round"), ("raw_slope", "raw slope on the cast share"), ("E_raw", "raw E, m = 7 minus m = 0")):
+            print(f"| {name} | {r[q]:+.3f} ± {se[q]:.3f} | {pl[q]['mean']:+.3f} [{pl[q]['lo']:+.3f}, {pl[q]['hi']:+.3f}] | "
+                  f"{dd[q]['est']:+.3f} ± {dd[q]['se']:.3f} [{dd[q]['lo']:+.3f}, {dd[q]['hi']:+.3f}] |")
+        print(f"| p(m = 0), p(m = 7) | {r['p0']:.3f}, {r['p7']:.3f} | {pl['p0']['mean']:.3f}, {pl['p7']['mean']:.3f} | |")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -767,6 +952,12 @@ def main():
     an.add_argument("--out", default=str(OUT))
     an.add_argument("--boot", type=int, default=2000)
     an.set_defaults(fn=cmd_analyse)
+    pl = sub.add_parser("placebo")
+    pl.add_argument("--out", default=str(OUT / "placebo.json"))
+    pl.add_argument("--perms", type=int, default=1000)
+    pl.add_argument("--boot", type=int, default=500)
+    pl.add_argument("--boot-perms", type=int, default=5)
+    pl.set_defaults(fn=cmd_placebo)
     a = p.parse_args()
     a.fn(a)
 

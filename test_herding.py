@@ -435,3 +435,78 @@ def test_t975():
     assert herding.t975(10) == village.t_quantiles(10)[0]
     for df, exact in ((49, 2.0096), (98, 1.9845), (150, 1.9759)):
         assert abs(herding.t975(df) - exact) < 2e-4
+
+
+def test_pilot_real_phase(source):
+    _, drawn, _ = source
+    jobs = herding.jobs(drawn[herding.SITUATIONS_OF["pilot_real"]], "pilot_real")
+    assert len(jobs) == 400 and {(c, m) for _, _, c, m in jobs} == {("real", 0), ("real", 7)}
+    pilot = {j[0] for j in herding.jobs(drawn["pilot"], "pilot")}
+    assert not pilot & {j[0] for j in jobs}  # distinct job ids, same situations
+    s = drawn["pilot"][0]
+    assert herding.request_of(s, 0, "real", 7).label == herding.request_of(s, 0, "peers", 7).label == s["key"]
+    assert herding.run_config("pilot_real", herding.OUT / "situations.jsonl")["jobs"] == 400 if (herding.OUT / "situations.jsonl").exists() else True
+
+
+def test_two_level_comparison_has_no_slope():
+    rows = []
+    for i in range(60):
+        for c, p in (("peers", (0, 0)), ("real", (0, 1))):
+            for m, y in zip((0, 7), p):
+                rows.append({"sid": f"pilot-{i:03d}", "condition": c, "m": m, "intent": bool(y), "real": bool(y)})
+    res = herding.analyse(rows, "intent", n_boot=20)
+    d = res["vs_peers"]["real"]
+    assert d["E"]["est"] == 1.0 and "7b" not in d and "ratio_7b" not in d and abs(d["level"]["est"] - 0.5) < 1e-12
+    assert "7b" not in res["conditions"]["real"]
+
+
+# ----------------------------------------------------------------------------
+# logged play: the other-day placebo
+# ----------------------------------------------------------------------------
+
+
+def synthetic_village(days, p_cast, seed):
+    """8 agents, 10 rounds a day; p_cast(round, share of the others who cast last round) -> probability."""
+    from pond import Episode
+
+    rng = random.Random(seed)
+    pool = []
+    for d in range(days):
+        prev = None
+        eps = [Episode(a, d, pond.agent_name(a), 10) for a in range(8)]
+        for r in range(1, 11):
+            acts = []
+            for a in range(8):
+                share = None if prev is None else sum(prev[b] for b in range(8) if b != a) / 7
+                cast = rng.random() < p_cast(r, share)
+                reply = Reply("", "", "cast" if cast else "fish", 1 if cast else 0)
+                eps[a].turns.append(Turn(d, r, "", "", reply, 10, 10, False if cast else None, 0.5, "", "ok", False, 0))
+                acts.append(cast)
+            prev = acts
+        pool.extend(eps)
+    return pool
+
+
+def test_placebo_separates_copying_from_the_round_profile():
+    copy = {"v": synthetic_village(20, lambda r, sh: 0.3 if sh is None else 0.1 + 0.8 * sh, 1)}
+    res = herding.placebo_analysis(copy, perms=20, boot_n=5, boot_perms=2)
+    assert res["real"]["all/real"]["fe_slope"] > 0.4
+    assert abs(res["placebo"]["all/real"]["fe_slope"]["mean"]) < 0.1
+    rounds = {"v": synthetic_village(40, lambda r, sh: 0.05 + 0.09 * r, 2)}  # null sd of the slope about 0.04 at 40 days
+    res = herding.placebo_analysis(rounds, perms=20, boot_n=5, boot_perms=2)
+    real, pl = res["real"]["all/real"], res["placebo"]["all/real"]
+    assert abs(real["fe_slope"]) < 0.15 and abs(pl["fe_slope"]["mean"]) < 0.15
+    assert real["raw_slope"] > 0.2 and abs(real["raw_slope"] - pl["raw_slope"]["mean"]) < 0.15
+
+
+def test_placebo_real_rows_reproduce_the_games_herding_slope(source):
+    pools, _, _ = source
+    blocks = [b for v, pool in pools.items() for d in sorted({ep.episode for ep in pool}) for b in herding.day_rows(pool, d, d, v)]
+    assert abs(herding.placebo_stats(blocks)["all/real"]["fe_slope"] - village.herding_slope(list(pools.values()))) < 1e-12
+
+
+def test_derangement_has_no_fixed_point():
+    rng = random.Random(0)
+    for _ in range(50):
+        der = herding.derangement(list(range(30)), rng)
+        assert sorted(der.values()) == list(range(30)) and all(k != v for k, v in der.items())
