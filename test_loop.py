@@ -386,10 +386,10 @@ def test_copying_cells_and_pull_on_scripted_pools():
     marg = village._marginal(cells)
     total = sum(v[0] for v in cells.values())
     assert total == sum(len(ep.turns) - 1 for ep in pool)  # every turn from round 2 on is an observation
-    assert all(len(k) == 3 and 0 <= k[2] <= 2 for k in cells)  # keyed (condition, own action, m), m = other agents who cast
+    assert all(len(k) == 4 and 0 <= k[2] <= 2 and 2 <= k[3] <= 4 for k in cells)  # keyed (condition, own action, m, round)
     # agent 0 never sees another cast (m = 0); the fishers always see agent 0 cast (m = 1), won or not
     assert sum(marg[("no_cast", o)][0] for o in village.OWN_PREV) == sum(len(ep.turns) - 1 for ep in pool if ep.agent == 0)
-    assert all(m == 0 for (c, _o, m) in cells if c == "no_cast") and all(m == 1 for (c, _o, m) in cells if c != "no_cast")
+    assert all(k[2] == 0 for k in cells if k[0] == "no_cast") and all(k[2] == 1 for k in cells if k[0] != "no_cast")
     won_n = sum(marg[("won", o)][0] for o in village.OWN_PREV)
     assert won_n == sum(1 for ep in pool if ep.agent != 0 for t in ep.turns[1:]
                         if any(o.won for o in (x for e in pool if e.agent == 0 and e.episode == ep.episode for x in e.turns if x.round == t.round - 1)))
@@ -397,6 +397,9 @@ def test_copying_cells_and_pull_on_scripted_pools():
     assert m["own"]["cast"]["rate"] == 1.0 and m["own"]["fish"]["rate"] == 0.0 and m["streak"]["value"] == 1.0
     assert m["cond"]["won"]["rate"] == 0.0 or won_n == 0  # fishers never cast, whatever they see
     assert m["by_m"]["0"]["rate"] == 1.0 and m["by_m"]["1"]["rate"] == 0.0  # agent 0 (m = 0) always casts, the fishers (m = 1) never do
+    # the same cells pooled with a village index give the same marginal rates
+    pooled = village._sum_cells([village.cells_from_rows(village.observer_rows(pool).values(), 0), village.cells_from_rows(village.observer_rows(pool).values(), 1)])
+    assert all(len(k) == 5 for k in pooled) and village.copying_measures(pooled)["streak"]["value"] == 1.0
     # attempts: a failed turn with an illegal stake counts as an attempted cast
     t = pool[0].turns[0]
     failed = Turn(t.episode, t.round, t.system, t.observation, Reply("r", "m", "fish", 0), 3, 4, None, 0.5, "raw", "failed: stake 5 above the 3 coins held", True, 0)
@@ -404,7 +407,7 @@ def test_copying_cells_and_pull_on_scripted_pools():
     assert not village.is_attempt(Turn(t.episode, t.round, t.system, t.observation, Reply("r", "m", "fish", 0), 3, 4, None, 0.5, "raw", "failed: no action line", True, 0))
     # the pull: at k = pool size the differentials are zero; a bootstrap gives finite SEs
     pull = village.copying_pull(pool, len(pool), 0, 0)
-    assert pull["S"]["cast_rate"] == 0 and pull["se"]["cast_rate"] is None
+    assert pull["S"]["cast_rate"] == 0 and pull["se"]["cast_rate"] is None and pull["episodes"] == len(pool)
     pull = village.copying_pull(pool, 3, 0, 0, boot=8, name="v")
     assert pull["se"]["cast_rate"] is not None and pull["se"]["cast_rate"] >= 0 and pull["boot_n"]["cast_rate"] == 8
     # the bootstrap resamples whole village-days: every replicate holds complete days (all agents)
@@ -412,68 +415,97 @@ def test_copying_cells_and_pull_on_scripted_pools():
     rep = village._resample_days(days, keys, __import__("random").Random(0))
     assert len(rep) == len(pool) and all(sum(1 for e in rep if e.episode == ep.episode and e.agent == ep.agent) == sum(1 for e in rep if e.episode == ep.episode) // 3 for ep in rep)
     # clustered SEs: agent 0 always casts after its own cast and the fishers always fish after fishing, so the streak is 1 in every replicate
-    reps = village.copying_cluster_boot([pool], 20, "t")
-    assert len(reps) == 20 and set(reps[0]) == set(village.COPY_MEASURES)
-    assert all(r["streak"] == 1.0 for r in reps) and village._sd([r["streak"] for r in reps]) == 0
-    # round 1 is chosen before any message: agent 0 casts, the fishers fish
+    cb = village.copying_cluster_boot([pool], 20, "t")
+    assert set(cb["se"]) == set(village.COPY_MEASURES) and cb["used"]["streak"] == 20 and cb["se"]["streak"] == 0 and cb["days"] == 3
+    # round 1 is chosen before any message of the day: agent 0 casts, the fishers fish; the first day is split off
     assert village.round1_rate(pool) == 1 / 3
+    split = village.round1_split(pool)
+    assert split["all"] == [3, 9] and split["first_day"] == [1, 3] and split["after_winner"][1] + split["after_none"][1] == 6
+    # the others' cast share is constant within each agent-day here, so the agent-day fixed effect leaves no variation
+    assert village.herding_slope([pool]) is None
+    # streak permutation: every agent-day is all casts or all fish, so shuffling changes nothing and the excess is 0
+    sp = village.streak_permutation(village.observer_rows(pool).values(), 20, "p")
+    assert sp["observed"] == 1.0 and sp["null_mean"] == 1.0 and sp["excess"] == 0.0 and sp["perms"] == 20
 
 
 def test_within_m_contrast_removes_the_caster_count():
-    # won rounds have more casters; the cast rate depends on m only, not on the win
-    cells = {("won", "fish", 1): [100, 20, 20, 100], ("cast_none_won", "fish", 1): [400, 80, 80, 400],
-             ("won", "fish", 4): [300, 180, 180, 300], ("cast_none_won", "fish", 4): [100, 60, 60, 100],
-             ("no_cast", "fish", 0): [200, 10, 10, 200]}
+    # won rounds have more casters; the cast rate depends on m only, not on the win (all in round 2)
+    cells = {("won", "fish", 1, 2): [100, 20, 20, 100], ("cast_none_won", "fish", 1, 2): [400, 80, 80, 400],
+             ("won", "fish", 4, 2): [300, 180, 180, 300], ("cast_none_won", "fish", 4, 2): [100, 60, 60, 100],
+             ("no_cast", "fish", 0, 2): [200, 10, 10, 200]}
     m = village.copying_measures(cells)
     assert m["contrast"]["value"] > 0.2  # marginal: 0.50 after a win against 0.28, all composition
     assert abs(m["contrast_within_m"]["value"]) < 1e-12 and m["contrast_within_m"]["strata"] == 2
-    assert abs(m["sync_gap"]["value"] - (140 / 500 - 10 / 200)) < 1e-12  # cast_none_won against no_cast over own action (one stratum)
+    assert abs(m["sync_gap"]["value"] - (140 / 500 - 10 / 200)) < 1e-12  # one (own, round) stratum
+    assert abs(m["sync_gap_marginal"]["value"] - (140 / 500 - 10 / 200)) < 1e-12
     assert m["by_m"]["0"]["rate"] == 0.05 and m["by_m"]["4"]["rate"] == 0.6
     # a real win effect inside each m survives the stratification
-    cells[("won", "fish", 1)] = [100, 40, 40, 100]
-    cells[("won", "fish", 4)] = [300, 240, 240, 300]
+    cells[("won", "fish", 1, 2)] = [100, 40, 40, 100]
+    cells[("won", "fish", 4, 2)] = [300, 240, 240, 300]
     assert abs(village.copying_measures(cells)["contrast_within_m"]["value"] - 0.2) < 1e-12
     # the streak within (condition, m) compares own cast against own fish in the same strata
-    cells[("won", "cast", 4)] = [100, 90, 90, 100]
+    cells[("won", "cast", 4, 2)] = [100, 90, 90, 100]
     s = village.copying_measures(cells)["streak_within"]
     assert s["strata"] == 1 and abs(s["value"] - (0.9 - 0.8)) < 1e-12
+    # the sync gap is stratified by round: a round profile alone (no herding) gives a marginal gap but no stratified one
+    prof = {("no_cast", "fish", 0, 2): [100, 10, 10, 100], ("cast_none_won", "fish", 1, 2): [10, 1, 1, 10],
+            ("no_cast", "fish", 0, 5): [10, 5, 5, 10], ("cast_none_won", "fish", 1, 5): [100, 50, 50, 100]}
+    mp = village.copying_measures(prof)
+    assert mp["sync_gap_marginal"]["value"] > 0.3 and abs(mp["sync_gap"]["value"]) < 1e-12
 
 
-def test_herding_slope_within_days():
-    # day 1: (x, y) = (0, 0), (1, 1); day 2: (0, 1), (1, 1): within-day cov 0.5 + 0, var 0.5 + 0.5
-    sums = {(0, 1): [2, 1.0, 1.0, 1.0, 1.0], (0, 2): [2, 1.0, 2.0, 1.0, 1.0]}
-    assert abs(village._slope_from_sums(sums) - 0.5) < 1e-12
-    assert village._slope_from_sums({(0, 1): [2, 2.0, 1.0, 2.0, 1.0]}) is None  # x constant within the day: no within-day variation
-    # on the scripted pool each day pools a caster (x = 0) and two fishers (x = 1/2): a pure between-agent pattern
-    _, pool = scripted_pool(lambda i, e: CastOrFish(pond.agent_name(i), 1) if i == 0 else AlwaysFish(pond.agent_name(i)), days=3)
-    s = village.herding_slope([pool])
-    assert s is not None and s < 0  # the agent who sees no cast is the one who casts
+def test_herding_slope_two_way_fixed_effects():
+    def row(r, x, y):
+        return ("cast_none_won", "fish", 1, r, x, y, y, True)
+
+    # within each agent-day and round, own casts follow the others' share one for one: slope 1
+    assert abs(village.herding_slope_rows([[row(2, 0.0, False), row(3, 1.0, True)], [row(2, 1.0, True), row(3, 0.0, False)]]) - 1.0) < 1e-9
+    # own casts constant within each agent-day: no within variation of y, slope 0
+    assert abs(village.herding_slope_rows([[row(2, 0.0, True), row(3, 1.0, True)], [row(2, 1.0, False), row(3, 0.0, False)]])) < 1e-9
+    # own casts follow only the common round profile (both agent-days cast in round 3), while the others' share
+    # varies within the agent-days in a way unrelated to it: the round dummies absorb the profile, slope 0
+    blocks = [[row(2, 0.2, False), row(3, 0.6, True), row(4, 0.4, False)], [row(2, 0.4, False), row(3, 0.6, True), row(4, 0.2, False)]]
+    assert abs(village.herding_slope_rows(blocks)) < 1e-9
+    # the others' share fully explained by agent-day and round effects: no residual variation, slope undefined
+    flat = [[row(2, 0.2, False), row(3, 0.6, True)], [row(2, 0.4, False), row(3, 0.8, True)]]
+    assert village.herding_slope_rows(flat) is None
+    assert village.herding_slope_rows([[row(2, 0.5, True)]]) is None  # too few rows
 
 
 def test_project_gap_and_simulated_power():
-    v = [(0.10, 0.02), (0.12, 0.02), (0.08, 0.02)]
+    v = [(0.10, 0.02), (0.16, 0.02), (0.04, 0.02)]
     l = [(0.06, 0.02), (0.05, 0.02), (0.07, 0.02)]
     out = village.project_gap(v, l, [(0.4, 0.1)], generations=2, rse_v=0.03, rse_l=0.012, sigma_train=0.02)
     assert abs(out["T"] - 0.4) < 1e-12 and abs(out["gap"] - 2 * 0.4 * 0.04) < 1e-12 and abs(out["drift_villagers"] - 0.08) < 1e-12
     # the SE of an arm mean is the larger of the between-village SE and the measurement SE of the mean
-    se_v = max(statistics.stdev([0.10, 0.12, 0.08]) / 3 ** 0.5, (3 * 0.02 ** 2) ** 0.5 / 3)
-    assert abs(out["se_S_villagers"] - se_v) < 1e-12
-    # tau: observed variance minus measurement variance, floored at 0
-    assert abs(out["tau_villagers"] - max(0.0, statistics.variance([0.10, 0.12, 0.08]) - 0.02 ** 2) ** 0.5) < 1e-12 and out["tau_loners"] == 0.0
-    var_v = (0.8 * out["tau_villagers"]) ** 2 + 0.03 ** 2 + 2 * 0.02 ** 2
-    var_l = 0.012 ** 2 + 2 * 0.02 ** 2
-    assert abs(out["run_sd"] - (var_v / 3 + var_l / 3) ** 0.5) < 1e-12
-    assert out["df"] == 4 and out["t_975"] == 2.776 and abs(out["mde_50_two_sided"] - 2.776 * out["run_sd"]) < 1e-12
+    assert abs(out["se_S_villagers"] - max(statistics.stdev([0.10, 0.16, 0.04]) / 3 ** 0.5, 0.02 / 3 ** 0.5)) < 1e-12
+    # tau: observed variance minus the mean squared bootstrap SE, floored at 0; rms: the RMS bootstrap SE
+    assert abs(out["tau_villagers"] - (statistics.variance([0.10, 0.16, 0.04]) - 0.02 ** 2) ** 0.5) < 1e-12 and out["tau_loners"] == 0.0
+    assert abs(out["rms_S_villagers"] - 0.02) < 1e-12
+    var_v = (0.8 * out["tau_villagers"]) ** 2 + 2 * (0.4 * 0.02) ** 2 + 2 * 0.02 ** 2 + 0.03 ** 2
+    var_l = 2 * (0.4 * 0.02) ** 2 + 2 * 0.02 ** 2 + 0.012 ** 2
+    assert abs(out["var_villagers"] - var_v) < 1e-15 and abs(out["run_sd"] - (var_v / 3 + var_l / 3) ** 0.5) < 1e-12
+    assert abs(out["pooled_se"] - out["run_sd"]) < 1e-12  # equal n: the pooled test's SE is the true SD
+    assert out["df"] == 4 and out["t_975"] == 2.776 and abs(out["mde_50_two_sided"] - 2.776 * out["pooled_se"]) < 1e-12
+    uneq = village.project_gap(v, l[:1] + l, [(0.4, 0.1)], 2, 0.03, 0.012, 0.0)  # 3 against 4: the pooled SE differs from the true SD
+    assert abs(uneq["pooled_se"] - uneq["run_sd"]) > 1e-6
+    one = village.project_gap(v, l[:1], [(0.4, 0.1)], 2, 0.03, 0.012, 0.0)
+    assert one["tau_loners"] is None  # one village: tau not estimable
     assert village.t_quantiles(4) == (2.776, 2.132, 0.941) and village.t_quantiles(11) == village.t_quantiles(10)
     T, se = village.combine([(0.34, 0.23), (0.48, 0.18)])
     assert 0.34 < T < 0.48 and se < 0.18
-    # null: equal pulls and no amplification reject at about the nominal 5 % two-sided
-    null = village.project_gap(l, l, [(0.4, 0.1)], 2, 0.012, 0.012, 0.0)
-    sim = village.simulate_run(null, 1.0, 3000, 0)
+    # null: equal arms and no amplification reject at about the nominal 5 % two-sided
+    same = village.project_gap(l, l, [(0.4, 0.1)], 2, 0.012, 0.012, 0.0)
+    sim = village.simulate_run(same, 1.0, 3000, 0)
     assert abs(sim["expected_gap"]) < 0.002 and 0.03 < sim["power_gap_two_sided"] < 0.075
-    # a large amplification is detected more often than the null
-    big = village.simulate_run(null, 4.0, 3000, 0)
+    # with unequal arm noise the pooled t is not exact: its size stays near but above 5 %
+    size = village.simulate_run(out, 1.0, 4000, 0, null=True)
+    assert abs(size["expected_gap"]) < 0.01 and 0.03 < size["power_gap_two_sided"] < 0.12
+    # a large amplification is detected more often than the null; assurance mode runs
+    big = village.simulate_run(same, 4.0, 3000, 0)
     assert big["expected_gap"] > 0.1 and big["power_gap_two_sided"] > 0.5
+    ass = village.simulate_run(out, 2.0, 1000, 0, mode="assurance")
+    assert ass["mode"] == "assurance" and 0.0 <= ass["power_gap_two_sided"] <= 1.0
 
 
 def test_phrasing_classifier_and_acquiescence_split():

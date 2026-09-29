@@ -906,7 +906,8 @@ def cmd_gradient(a):
 COPY_CONDS = ("won", "cast_none_won", "no_cast")
 OWN_PREV = ("cast", "attempt", "fish")
 # the measures the day-clustered bootstrap tracks (LOG 2026-09-29)
-COPY_MEASURES = ("contrast", "contrast_within_m", "sync_gap", "herding_slope", "streak", "streak_within", "after_won", "cast_rate")
+COPY_MEASURES = ("contrast", "contrast_within_m", "sync_gap", "sync_gap_marginal", "herding_slope", "streak", "streak_within",
+                 "after_won", "cast_rate")
 
 
 def is_cast(t) -> bool:
@@ -923,23 +924,25 @@ def _context(pool) -> tuple:
     return {(ep.episode, t.round, ep.agent): t for ep in pool for t in ep.turns}, sorted({ep.agent for ep in pool})
 
 
-def copying_cells(pool, episodes=None) -> dict:
-    """Round-after counts over a village-generation (LOG 2026-09-28, 2026-09-29). For every turn
-    from the second round of a day on, the observer's outcome, keyed (condition, own previous
-    action, m). The condition is what the other agents of the same village-day did in the
-    previous round: at least one won ("won"; villagers see it in the event line, loners see
-    nothing, so they are the placebo), at least one real cast and none won ("cast_none_won"), or
-    none cast ("no_cast"). The own previous action is a real cast, an attempted cast (a failed
-    turn with an illegal stake) or fish. m is the number of other agents whose previous-round
-    turn was a real cast: a win needs a cast, so win rounds have more casters, and a contrast of
-    won against cast_none_won that ignores m mixes copying a win with herding on casts (the
-    verification of 2026-09-29). Each cell holds [turns, real casts, real or attempted casts,
-    turns with at least one coin]. Context always comes from the full pool; `episodes`
-    restricts the observers (the selected days)."""
+def observer_rows(pool) -> dict:
+    """The observer rows of a village-generation, per agent-day (day, agent), computed once with the
+    context of the full pool (LOG 2026-09-28, 2026-09-29). One row per turn from the second round
+    of a day on: (condition, own previous action, m, round, x, real, real_or_attempt, afford).
+    condition: what the other agents of the same village-day did in the previous round: at least
+    one won ("won"; villagers see it in the event line, loners see nothing, so they are the
+    placebo), at least one real cast and none won ("cast_none_won"), or none cast ("no_cast").
+    own previous action: a real cast, an attempted cast (a failed turn with an illegal stake), or
+    fish (anything else). m: the number of other agents whose previous-round turn was a real cast
+    (a win needs a cast, so rounds after a win have more casters). x: m over the other agents
+    present in the previous round (None when none was). real: the turn is a real cast;
+    real_or_attempt: a real or attempted cast; afford: at least one coin before the turn. Every
+    copying rate has all observer turns as its denominator (a failed turn counts as not cast),
+    unlike gradient_stats' cast rate over parsed turns. A day's rows do not depend on which other
+    days a bootstrap replicate holds, so replicates reuse them."""
     by, agents = _context(pool)
-    cells = {}
-    for ep in (pool if episodes is None else episodes):
-        prev = None
+    rows = {}
+    for ep in pool:
+        prev, out = None, []
         for t in ep.turns:
             if prev is not None:
                 r = t.round - 1
@@ -947,21 +950,52 @@ def copying_cells(pool, episodes=None) -> dict:
                 m = sum(1 for o in others if is_cast(o))
                 cond = "won" if any(o.won for o in others) else ("cast_none_won" if m else "no_cast")
                 own = "cast" if is_cast(prev) else ("attempt" if is_attempt(prev) else "fish")
-                cell = cells.setdefault((cond, own, m), [0, 0, 0, 0])
-                cell[0] += 1
-                cell[1] += is_cast(t)
-                cell[2] += is_cast(t) or is_attempt(t)
-                cell[3] += t.coins_before >= 1
+                out.append((cond, own, m, t.round, (m / len(others)) if others else None, is_cast(t), is_cast(t) or is_attempt(t), t.coins_before >= 1))
             prev = t
+        rows[(ep.episode, ep.agent)] = out
+    return rows
+
+
+def cells_from_rows(blocks, village=None) -> dict:
+    """Counts [turns, real casts, real or attempted casts, turns with a coin] keyed (condition, own
+    action, m, round), or (village, condition, own action, m, round) when a village index is
+    given (pooled groups stratify by village). blocks: row lists."""
+    cells = {}
+    for rows in blocks:
+        for cond, own, m, rnd, _x, real, att, afford in rows:
+            key = (cond, own, m, rnd) if village is None else (village, cond, own, m, rnd)
+            c = cells.get(key)
+            if c is None:
+                c = cells[key] = [0, 0, 0, 0]
+            c[0] += 1
+            c[1] += real
+            c[2] += att
+            c[3] += afford
     return cells
 
 
+def copying_cells(pool, episodes=None) -> dict:
+    """The cells of a village-generation; `episodes` restricts the observers (the selected days),
+    their context still coming from the full pool."""
+    rows = observer_rows(pool)
+    return cells_from_rows(rows[(ep.episode, ep.agent)] for ep in (pool if episodes is None else episodes))
+
+
+def _key5(key) -> tuple:
+    return tuple(key) if len(key) == 5 else (0,) + tuple(key)
+
+
+def _add(acc, v):
+    for i in range(4):
+        acc[i] += v[i]
+
+
 def _marginal(cells) -> dict:
-    """The (condition, own previous action) cells, summed over m."""
+    """The (condition, own previous action) cells, summed over village, m and round."""
     out = {(c, o): [0, 0, 0, 0] for c in COPY_CONDS for o in OWN_PREV}
-    for (c, o, _m), v in cells.items():
-        for i in range(4):
-            out[(c, o)][i] += v[i]
+    for key, v in cells.items():
+        _, c, o, _m, _r = _key5(key)
+        _add(out[(c, o)], v)
     return out
 
 
@@ -1002,17 +1036,33 @@ def _mh_rd(pairs, j) -> dict:
 
 
 def copying_measures(cells, attempts=False) -> dict:
-    """Rates from the (condition, own, m) cells. Marginal over m: the rate per (condition, own
-    action), per condition and per own action; the marginal contrast (won minus cast_none_won,
-    descriptive: confounded by m) and the same within each own action; the streak (after own
-    cast minus after own fish). Stratified, Mantel-Haenszel risk differences: contrast_within_m
-    (won against cast_none_won over the strata (m, own action): copying a win with the number
-    of casters held fixed), sync_gap (cast_none_won against no_cast over own action: herding on
-    others' casts), streak_within (own cast against own fish over (condition, m)). by_m: the
-    cast rate by the number of other casters. attempts=True counts attempted casts as casts."""
+    """Rates from the cells (keys (condition, own, m, round), optionally led by a village index).
+    Marginal: the rate per (condition, own action), per condition and per own action; the
+    marginal win contrast (won minus cast_none_won; descriptive, confounded by m) and the same
+    within each own action; the marginal streak (after own cast minus after own fish;
+    descriptive, it mixes state dependence with agent-days that cast more than others); the
+    marginal sync gap (cast_none_won minus no_cast, the definition of the 09-29 LOG numbers).
+    Stratified, Mantel-Haenszel risk differences over strata that include the village when the
+    cells are pooled over villages: contrast_within_m (won against cast_none_won over (village,
+    m, own action): copying a win with the number of casters held fixed), sync_gap
+    (cast_none_won against no_cast over (village, own action, round): herding on the others'
+    casts, net of the round profile, which otherwise gives the loner placebo about +0.08),
+    streak_within (own cast against own fish over (village, condition, m)). by_m: the cast rate
+    by the number of other casters. attempts=True counts attempted casts as casts."""
     j = 2 if attempts else 1
-    marg = _marginal(cells)
     zero = [0, 0, 0, 0]
+    marg = {(c, o): [0, 0, 0, 0] for c in COPY_CONDS for o in OWN_PREV}
+    by_m, within, sync, strk = {}, {}, {}, {}
+    for key, v in cells.items():
+        vid, c, o, m, rnd = _key5(key)
+        _add(marg[(c, o)], v)
+        _add(by_m.setdefault(m, [0, 0, 0, 0]), v)
+        if c in ("won", "cast_none_won"):
+            _add(within.setdefault((vid, m, o), {}).setdefault(c, [0, 0, 0, 0]), v)
+        if c in ("cast_none_won", "no_cast"):
+            _add(sync.setdefault((vid, o, rnd), {}).setdefault(c, [0, 0, 0, 0]), v)
+        if o in ("cast", "fish"):
+            _add(strk.setdefault((vid, c, m), {}).setdefault(o, [0, 0, 0, 0]), v)
     out = {"cells": {}, "cond": {}, "own": {}, "by_m": {}}
     for (c, o), v in marg.items():
         r, se = _rate(v[0], v[j])
@@ -1025,11 +1075,8 @@ def copying_measures(cells, attempts=False) -> dict:
         n = sum(marg[(c, o)][0] for c in COPY_CONDS)
         k = sum(marg[(c, o)][j] for c in COPY_CONDS)
         out["own"][o] = {"n": n, **dict(zip(("rate", "se"), _rate(n, k)))}
-    ms = sorted({m for _, _, m in cells})
-    for m in ms:
-        n = sum(v[0] for (_c, _o, mm), v in cells.items() if mm == m)
-        k = sum(v[j] for (_c, _o, mm), v in cells.items() if mm == m)
-        out["by_m"][str(m)] = {"n": n, **dict(zip(("rate", "se"), _rate(n, k)))}
+    for m in sorted(by_m):
+        out["by_m"][str(m)] = {"n": by_m[m][0], **dict(zip(("rate", "se"), _rate(by_m[m][0], by_m[m][j])))}
 
     def diff(a, b):
         if a["rate"] is None or b["rate"] is None:
@@ -1039,59 +1086,138 @@ def copying_measures(cells, attempts=False) -> dict:
     out["contrast"] = diff(out["cond"]["won"], out["cond"]["cast_none_won"])
     out["contrast_by_own"] = {o: diff(out["cells"][f"won|{o}"], out["cells"][f"cast_none_won|{o}"]) for o in OWN_PREV}
     out["streak"] = diff(out["own"]["cast"], out["own"]["fish"])
-    out["contrast_within_m"] = _mh_rd([(cells.get(("won", o, m), zero), cells.get(("cast_none_won", o, m), zero)) for m in ms for o in OWN_PREV], j)
-    out["sync_gap"] = _mh_rd([(marg[("cast_none_won", o)], marg[("no_cast", o)]) for o in OWN_PREV], j)
-    out["streak_within"] = _mh_rd([(cells.get((c, "cast", m), zero), cells.get((c, "fish", m), zero)) for c in COPY_CONDS for m in ms], j)
+    out["sync_gap_marginal"] = diff(out["cond"]["cast_none_won"], out["cond"]["no_cast"])
+    out["contrast_within_m"] = _mh_rd([(s.get("won", zero), s.get("cast_none_won", zero)) for s in within.values()], j)
+    out["sync_gap"] = _mh_rd([(s.get("cast_none_won", zero), s.get("no_cast", zero)) for s in sync.values()], j)
+    out["streak_within"] = _mh_rd([(s.get("cast", zero), s.get("fish", zero)) for s in strk.values()], j)
     return out
 
 
-def _herding_sums(pools, episodes_list=None) -> dict:
-    """Per village-day sums [n, sx, sy, sxx, sxy] of x = the share of the other agents present in
-    the previous round who really cast, and y = the observer's real cast. Days are keyed
-    (village index, day), so days of different villages stay apart, and a day drawn twice in a
-    bootstrap replicate counts twice."""
-    sums = {}
-    for i, pool in enumerate(pools):
-        by, agents = _context(pool)
-        for ep in (pool if episodes_list is None else episodes_list[i]):
-            prev = None
+def herding_slope_rows(blocks):
+    """Slope of the observer's real cast on x (the other agents' previous-round cast share) with an
+    agent-day fixed effect and round dummies, by the two-way within transformation (alternating
+    projections). In simulations of independent agents in this design it is unbiased; a
+    village-day fixed effect alone is not (about -0.09 to -0.10 with no social effect, and it
+    moves with agent heterogeneity and the round profile; code review of 2026-09-29). It is the
+    response to the others net of the agent-day's own level and the common round profile.
+    Loners, who see nothing, are the placebo. blocks: row lists, one per agent-day instance (a
+    day drawn twice in a bootstrap replicate gives two instances)."""
+    import numpy as np
+
+    gid, rnd, xs, ys = [], [], [], []
+    for g, rows in enumerate(blocks):
+        for _c, _o, _m, r, x, real, _a, _f in rows:
+            if x is None:
+                continue
+            gid.append(g)
+            rnd.append(r)
+            xs.append(x)
+            ys.append(1.0 if real else 0.0)
+    if len(xs) < 3:
+        return None
+    gid, rnd = np.asarray(gid), np.asarray(rnd)
+    ng, nr = int(gid.max()) + 1, int(rnd.max()) + 1
+    cg = np.maximum(np.bincount(gid, minlength=ng), 1).astype(float)
+    cr = np.maximum(np.bincount(rnd, minlength=nr), 1).astype(float)
+
+    def within(v):
+        v = np.asarray(v, dtype=float).copy()
+        for _ in range(500):
+            v -= (np.bincount(gid, weights=v, minlength=ng) / cg)[gid]
+            rm = np.bincount(rnd, weights=v, minlength=nr) / cr
+            v -= rm[rnd]
+            if np.abs(rm).max() < 1e-12:
+                break
+        return v
+
+    xr, yr = within(xs), within(ys)
+    sxx = float(xr @ xr)
+    return float(xr @ yr) / sxx if sxx > 1e-12 else None
+
+
+def herding_slope(pools):
+    """herding_slope_rows over every agent-day of the pools."""
+    return herding_slope_rows([rows for pool in pools for rows in observer_rows(pool).values()])
+
+
+def _own_sequence(rows) -> list:
+    """An agent-day's own actions in order, from its observer rows: the first row's own previous
+    action, then each row's own action (real cast, attempt, other)."""
+    if not rows:
+        return []
+    return [rows[0][1]] + ["cast" if r[5] else ("attempt" if r[6] else "fish") for r in rows]
+
+
+def _seq_streak(seqs) -> tuple:
+    """(after own cast: casts, n; after own fish: casts, n) over consecutive pairs of the sequences."""
+    cc = cn = fc = fn = 0
+    for s in seqs:
+        for a, b in zip(s, s[1:]):
+            if a == "cast":
+                cn += 1
+                cc += b == "cast"
+            elif a == "fish":
+                fn += 1
+                fc += b == "cast"
+    return cc, cn, fc, fn
+
+
+def streak_permutation(blocks, perms: int, rng_key: str) -> dict:
+    """State dependence net of agent-day heterogeneity: the marginal streak (rate after own cast
+    minus rate after own fish, real casts) against a null that shuffles each agent-day's own
+    action sequence, keeping its mix of actions (code review of 2026-09-29: agent-days that cast
+    more make the plain streak positive with no state dependence; under no state dependence the
+    sequence is exchangeable within the agent-day, so this is an exact test). Returns the
+    observed streak, the null mean and SD, and the excess (observed minus null mean)."""
+    seqs = [s for s in (_own_sequence(rows) for rows in blocks) if len(s) > 1]
+
+    def streak(ss):
+        cc, cn, fc, fn = _seq_streak(ss)
+        return (cc / cn - fc / fn) if cn and fn else None
+
+    observed = streak(seqs)
+    rng = random.Random(rng_key)
+    null = []
+    for _ in range(perms):
+        shuffled = []
+        for s in seqs:
+            s2 = list(s)
+            rng.shuffle(s2)
+            shuffled.append(s2)
+        v = streak(shuffled)
+        if v is not None:
+            null.append(v)
+    mean = statistics.fmean(null) if null else None
+    return {"observed": observed, "null_mean": mean, "null_sd": statistics.stdev(null) if len(null) > 1 else None,
+            "excess": None if observed is None or mean is None else observed - mean, "perms": len(null)}
+
+
+def round1_split(pool) -> dict:
+    """Round-1 cast rate over parsed turns, split by day: the first day (the only round 1 with no
+    village outcome in the observation: from day 2 on, the villagers' round-1 observation names
+    yesterday's winners, code review of 2026-09-29), later days after a day with at least one
+    winner in the village, later days after a day with none. Loners see no winners: their split
+    is the placebo. Returns counts, so groups can be pooled."""
+    days, keys = _days_of(pool)
+    won_day = {d: any(t.won for ep in days[d] for t in ep.turns) for d in keys}
+    out = {b: [0, 0] for b in ("all", "first_day", "after_winner", "after_none")}
+    for i, d in enumerate(keys):
+        b = "first_day" if i == 0 else ("after_winner" if won_day[keys[i - 1]] else "after_none")
+        for ep in days[d]:
             for t in ep.turns:
-                if prev is not None:
-                    r = t.round - 1
-                    others = [by[(ep.episode, r, a)] for a in agents if a != ep.agent and (ep.episode, r, a) in by]
-                    if others:
-                        x = sum(1 for o in others if is_cast(o)) / len(others)
-                        y = 1.0 if is_cast(t) else 0.0
-                        s = sums.setdefault((i, ep.episode), [0, 0.0, 0.0, 0.0, 0.0])
-                        s[0] += 1
-                        s[1] += x
-                        s[2] += y
-                        s[3] += x * x
-                        s[4] += x * y
-                prev = t
-    return sums
+                if t.round == 1 and not t.failed:
+                    for bucket in ("all", b):
+                        out[bucket][0] += t.reply.action == "cast"
+                        out[bucket][1] += 1
+    return out
 
 
-def _slope_from_sums(sums):
-    """Pooled within-day slope: sum of within-day covariances over sum of within-day variances."""
-    cxx = cxy = 0.0
-    for n, sx, sy, sxx, sxy in sums.values():
-        cxx += sxx - sx * sx / n
-        cxy += sxy - sx * sy / n
-    return cxy / cxx if cxx > 1e-12 else None
-
-
-def herding_slope(pools, episodes_list=None):
-    """Within-village-day slope of the observer's real cast on the others' previous-round cast
-    share: a village-day fixed effect removes the day's common state, so what remains is the
-    round-to-round response to the others (LOG 2026-09-29). Loners, who see nothing, are the
-    placebo."""
-    return _slope_from_sums(_herding_sums(pools, episodes_list))
+def _split_rates(split) -> dict:
+    return {b: {"rate": (c / n) if n else None, "n": n} for b, (c, n) in split.items()}
 
 
 def round1_rate(episodes):
-    """Cast rate over the parsed turns of round 1: every agent chooses before any message or event
-    of the day, so an arm difference here is the prompt's, not the village's."""
+    """Round-1 cast rate over parsed turns (all days)."""
     turns = [t for ep in episodes for t in ep.turns if t.round == 1 and not t.failed]
     return (sum(1 for t in turns if t.reply.action == "cast") / len(turns)) if turns else None
 
@@ -1107,56 +1233,72 @@ def _days_of(pool) -> tuple:
 def _resample_days(days, keys, rng) -> list:
     """One bootstrap replicate of a pool: as many village-days as the pool has, drawn with
     replacement, each with all of its agents, so every observer keeps the context of its own
-    day. A day drawn twice appears twice; its turns keep their keys, which is right for the
-    context lookup (the same day has the same context)."""
+    day. A day drawn twice appears twice."""
     sample = []
     for _ in keys:
         sample += days[keys[rng.randrange(len(keys))]]
     return sample
 
 
-def _cluster_stats(samples, attempts=False) -> dict:
-    """The COPY_MEASURES of one replicate (a list of village pools, pooled)."""
-    m = copying_measures(_sum_cells([copying_cells(s) for s in samples]), attempts)
+def _village_day_entries(pool) -> list:
+    """Per village-day (in day order): (the agent-days' observer rows, real casts, parsed turns)."""
+    rows = observer_rows(pool)
+    days, keys = _days_of(pool)
+    entries = []
+    for d in keys:
+        turns = [t for ep in days[d] for t in ep.turns if not t.failed]
+        entries.append(([rows[(ep.episode, ep.agent)] for ep in days[d]], sum(1 for t in turns if t.reply.action == "cast"), len(turns)))
+    return entries
+
+
+def _stats_from_days(groups, attempts=False) -> dict:
+    """COPY_MEASURES over a set of villages, each given as a list of village-day entries (a
+    bootstrap replicate or the full village). Cells of different villages are stratified by
+    village when there is more than one."""
+    cell_list, blocks, casts, parsed = [], [], 0, 0
+    for vid, entries in enumerate(groups):
+        vb = [b for e in entries for b in e[0]]
+        cell_list.append(cells_from_rows(vb, vid if len(groups) > 1 else None))
+        blocks += vb
+        casts += sum(e[1] for e in entries)
+        parsed += sum(e[2] for e in entries)
+    m = copying_measures(_sum_cells(cell_list), attempts)
     return {"contrast": m["contrast"]["value"], "contrast_within_m": m["contrast_within_m"]["value"], "sync_gap": m["sync_gap"]["value"],
-            "herding_slope": herding_slope(samples), "streak": m["streak"]["value"], "streak_within": m["streak_within"]["value"],
-            "after_won": m["cond"]["won"]["rate"], "cast_rate": gradient_stats([ep for s in samples for ep in s])["cast_rate"]}
+            "sync_gap_marginal": m["sync_gap_marginal"]["value"], "herding_slope": herding_slope_rows(blocks), "streak": m["streak"]["value"],
+            "streak_within": m["streak_within"]["value"], "after_won": m["cond"]["won"]["rate"], "cast_rate": (casts / parsed) if parsed else None}
 
 
-def copying_cluster_boot(pools, boot: int, rng_key: str, attempts: bool = False) -> list:
-    """Day-clustered bootstrap of the pooled measures over a group of villages: every replicate
-    resamples each village's days (stratified by village) and recomputes COPY_MEASURES. The
-    binomial SEs of copying_measures treat every observer-round as independent; rounds of one
-    village-day are not (the agents share the day's events and messages), so these are the SEs
-    to read. Stratified by village, they do not include village-to-village variation of a
-    trained lineage; at generation zero the villages are exchangeable blocks of days of one
-    process, and the clustered SE answers both 'these villages' and 'villages of this kind'."""
-    rng = random.Random(rng_key)
-    grouped = [_days_of(pool) for pool in pools]
-    return [_cluster_stats([_resample_days(days, keys, rng) for days, keys in grouped], attempts) for _ in range(boot)]
-
-
-def _sd(values):
-    vals = [v for v in values if v is not None]
-    return statistics.stdev(vals) if len(vals) > 1 else None
+def copying_cluster_boot(pools, boot: int, rng_key: str) -> dict:
+    """Day-clustered bootstrap SEs of COPY_MEASURES over a group of villages: every replicate
+    resamples each village's days (stratified by village). Rounds of one village-day are
+    correlated (the agents share the day's events and messages), so these, not the binomial
+    SEs, are the SEs to read. The SD of the replicates is scaled by sqrt(n/(n-1)), n the days
+    per village, the small-sample correction of a stratified cluster bootstrap (about 5 % at 10
+    days). Stratified by village, they hold the villages fixed: at generation zero the villages
+    are exchangeable blocks of days of one process, so they answer both 'these villages' and
+    'villages of this kind'; for trained lineages the between-lineage SE is reported beside
+    them. Returns {"se": {measure: SE}, "used": {measure: replicates with a value}, "days": n}."""
+    return _cluster_from_entries([_village_day_entries(pool) for pool in pools], boot, rng_key)
 
 
 def copying_pull(pool, k: int, seed: int, generation: int, boot: int = 0, boot_seed: int = 0, name: str = "") -> dict:
-    """The selection differential at k on the cast rate and on the copying measures (the
-    selected days' observers against the population's), with a day-level bootstrap SE when
-    boot > 0: the pool's village-days (all agents of a day together) are resampled with
-    replacement, the top k agent-days reselected, the differentials recomputed; the SE is their
-    standard deviation. (Resampling single agent-days, as the first version did, drops other
-    agents from an observer's day and misclassifies its context; fixed 2026-09-29. The RNG key
-    carries the village name so villages of one seed draw different days.)"""
+    """The selection differential at k on the cast rate and on the copying measures (the selected
+    agent-days' observers against the population's, context from the full pool), with a
+    day-level bootstrap SE when boot > 0: the pool's village-days (all agents of a day together)
+    are resampled with replacement, the top k agent-days reselected, the differentials
+    recomputed; the SE is their SD times sqrt(n/(n-1)), n the days. (Resampling single agent-days,
+    as the first version did, drops other agents from an observer's day; fixed 2026-09-29. The
+    RNG key carries the village name so villages of one seed draw different days.)"""
+    rows = observer_rows(pool)
 
     def d(a, b):
         return None if a is None or b is None else a - b
 
-    def measures(p, sel):
-        pop, s = copying_measures(copying_cells(p)), copying_measures(copying_cells(p, sel))
+    def measures(sample, sel):
+        pop = copying_measures(cells_from_rows(rows[(ep.episode, ep.agent)] for ep in sample))
+        s = copying_measures(cells_from_rows(rows[(ep.episode, ep.agent)] for ep in sel))
         return {
-            "cast_rate": gradient_stats(sel)["cast_rate"] - gradient_stats(p)["cast_rate"],
+            "cast_rate": gradient_stats(sel)["cast_rate"] - gradient_stats(sample)["cast_rate"],
             "after_won": d(s["cond"]["won"]["rate"], pop["cond"]["won"]["rate"]),
             "contrast": d(s["contrast"]["value"], pop["contrast"]["value"]),
             "contrast_within_m": d(s["contrast_within_m"]["value"], pop["contrast_within_m"]["value"]),
@@ -1165,10 +1307,11 @@ def copying_pull(pool, k: int, seed: int, generation: int, boot: int = 0, boot_s
         }
 
     point = measures(pool, pond.select(pool, k, seed, generation))
-    out = {"k": k, "S": point, "se": {m: None for m in point}, "boot": boot}
+    out = {"k": k, "episodes": len(pool), "S": point, "se": {m: None for m in point}, "boot": boot}
     if boot:
         rng = random.Random(f"{boot_seed}/copying/bootstrap/{name}/{seed}/g{generation}")
         days, keys = _days_of(pool)
+        scale = math.sqrt(len(keys) / (len(keys) - 1)) if len(keys) > 1 else 1.0
         draws = {m: [] for m in point}
         for _ in range(boot):
             sample = _resample_days(days, keys, rng)
@@ -1176,43 +1319,48 @@ def copying_pull(pool, k: int, seed: int, generation: int, boot: int = 0, boot_s
             for m, v in got.items():
                 if v is not None:
                     draws[m].append(v)
-        out["se"] = {m: (statistics.stdev(v) if len(v) > 1 else None) for m, v in draws.items()}
+        out["se"] = {m: (statistics.stdev(v) * scale if len(v) > 1 else None) for m, v in draws.items()}
         out["boot_n"] = {m: len(v) for m, v in draws.items()}
     return out
 
 
-def _group_values(p) -> dict:
-    """Point values of COPY_MEASURES for a village or a pooled group (real casts)."""
-    m = p["real"]
-    return {"contrast": m["contrast"]["value"], "contrast_within_m": m["contrast_within_m"]["value"], "sync_gap": m["sync_gap"]["value"],
-            "herding_slope": p["herding_slope"], "streak": m["streak"]["value"], "streak_within": m["streak_within"]["value"],
-            "after_won": m["cond"]["won"]["rate"], "cast_rate": p["population_cast_rate"]}
+def _between_se(values_v, values_l):
+    """SE of the villager-minus-loner difference of arm means from the villages' own values (the
+    between-lineage SE); None with fewer than two villages in an arm."""
+    vv = [x for x in values_v if x is not None]
+    vl = [x for x in values_l if x is not None]
+    if len(vv) < 2 or len(vl) < 2:
+        return None
+    return math.sqrt(statistics.variance(vv) / len(vv) + statistics.variance(vl) / len(vl))
 
 
 def cmd_copying(a):
-    """Copying, herding and streak measures for every played village-generation of a run,
-    pooled per arm and generation (villagers against loners, the placebo), with day-clustered
-    bootstrap SEs (--cluster-boot), and the selection pull at k on the cast rate and on the
-    copying measures with a day-level bootstrap SE (--bootstrap)."""
+    """Copying, herding and streak measures for every played village-generation of a run, per
+    village and pooled per arm and generation (villagers against loners, the placebo), with
+    day-clustered bootstrap SEs (--cluster-boot; at least 1000 for reported SEs), a
+    within-agent-day permutation test of the streak (--perms), the round-1 split, and the
+    selection pull at k on the cast rate and on the copying measures with a day-level
+    bootstrap SE (--bootstrap)."""
     run = Path(a.run)
-    per, pools, raw = {}, {}, {}
+    per, entries = {}, {}
     for pd in _play_dirs(run):
         for d in sorted(x for x in pd.iterdir() if x.is_dir() and (x / "summary.json").exists()):
             pool, summary = _load_village(d)
             g = summary["generation"]
             key = (d.name, g)
-            pools[key] = pool
-            raw[key] = cells = copying_cells(pool)
+            entries[key] = _village_day_entries(pool)
+            cells = cells_from_rows([b for e in entries[key] for b in e[0]])
             gs = gradient_stats(pool)
-            per[key] = {"village": d.name, "arm": summary["arm"], "generation": g, "seed": summary["seed"],
-                        "cells": [[c, o, m, *v] for (c, o, m), v in sorted(cells.items())],
-                        "population_cast_rate": gs["cast_rate"], "cast_rate_se_binomial": gs["cast_rate_se"], "turns": gs["turns"], "episodes": gs["episodes"],
-                        "round1_cast_rate": round1_rate(pool),
-                        "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True), "herding_slope": herding_slope([pool]),
-                        "pull": copying_pull(pool, a.k or summary["k"], summary["seed"], g, a.bootstrap, a.bootstrap_seed, d.name)}
+            p = {"village": d.name, "arm": summary["arm"], "generation": g, "seed": summary["seed"], "days": len(entries[key]),
+                 "cells": [[*k_, *v] for k_, v in sorted(cells.items())],
+                 "population_cast_rate": gs["cast_rate"], "cast_rate_se_binomial": gs["cast_rate_se"], "turns": gs["turns"], "episodes": gs["episodes"],
+                 "round1": round1_split(pool),
+                 "values": _stats_from_days([entries[key]]), "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True),
+                 "streak_permutation": streak_permutation([b for e in entries[key] for b in e[0]], a.perms, f"{a.bootstrap_seed}/streak/{d.name}/g{g}") if a.perms else None,
+                 "pull": copying_pull(pool, a.k or summary["k"], summary["seed"], g, a.bootstrap, a.bootstrap_seed, d.name)}
             if a.cluster_boot:
-                reps = copying_cluster_boot([pool], a.cluster_boot, f"{a.bootstrap_seed}/copying/cluster/{d.name}/g{g}")
-                per[key]["cluster_se"] = {m: _sd([r[m] for r in reps]) for m in COPY_MEASURES}
+                p["cluster"] = _cluster_from_entries([entries[key]], a.cluster_boot, f"{a.bootstrap_seed}/copying/cluster/{d.name}/g{g}")
+            per[key] = p
     if not per:
         raise ValueError(f"{run}: no played villages")
     gens = sorted({g for _, g in per})
@@ -1223,51 +1371,69 @@ def cmd_copying(a):
             keys = sorted(key for key in per if key[1] == g and per[key]["arm"] == arm)
             if not keys:
                 continue
-            cells = _sum_cells([raw[key] for key in keys])
-            group = [pools[key] for key in keys]
-            episodes = [ep for p in group for ep in p]
+            groups = [entries[key] for key in keys]
+            cells = _sum_cells([cells_from_rows([b for e in grp for b in e[0]], vid if len(groups) > 1 else None) for vid, grp in enumerate(groups)])
+            split = {b: [sum(per[key]["round1"][b][0] for key in keys), sum(per[key]["round1"][b][1] for key in keys)] for b in per[keys[0]]["round1"]}
             total = sum(v[0] for v in cells.values())
-            p = {"villages": len(keys), "names": [key[0] for key in keys], "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True),
-                 "herding_slope": herding_slope(group), "population_cast_rate": gradient_stats(episodes)["cast_rate"], "round1_cast_rate": round1_rate(episodes),
-                 "frac_after_won": (sum(v[0] for (c, _o, _m), v in cells.items() if c == "won") / total) if total else None}
+            p = {"villages": len(keys), "names": [key[0] for key in keys], "values": _stats_from_days(groups), "round1": split,
+                 "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True),
+                 "frac_after_won": (sum(v[0] for k_, v in cells.items() if _key5(k_)[1] == "won") / total) if total else None,
+                 "streak_permutation": streak_permutation([b for grp in groups for e in grp for b in e[0]], a.perms, f"{a.bootstrap_seed}/streak/{arm}/g{g}") if a.perms else None}
             if a.cluster_boot:
-                reps = copying_cluster_boot(group, a.cluster_boot, f"{a.bootstrap_seed}/copying/cluster/{arm}/g{g}")
-                p["cluster_se"] = {m: _sd([r[m] for r in reps]) for m in COPY_MEASURES}
+                if len(keys) == 1:
+                    p["cluster"] = per[keys[0]]["cluster"]  # one village: its own replicates, so one quantity has one SE
+                else:
+                    p["cluster"] = _cluster_from_entries(groups, a.cluster_boot, f"{a.bootstrap_seed}/copying/cluster/{arm}/g{g}")
+            p["per_village_values"] = {key[0]: per[key]["values"] for key in keys}
             pooled[f"{arm}_g{g}"] = p
 
     sgn = lambda x, d=3: "-" if x is None else f"{x:+.{d}f}"
     lvl = lambda x, d=3: "-" if x is None else f"{x:.{d}f}"
 
     def val(p, meas, signed=True):
-        v = _group_values(p)[meas]
-        se = (p.get("cluster_se") or {}).get(meas)
+        v = p["values"][meas]
+        se = (p.get("cluster") or {}).get("se", {}).get(meas)
         return (sgn(v) if signed else lvl(v)) + (f" ± {lvl(se)}" if se is not None else "")
 
-    se_note = f"± day-clustered bootstrap SE ({a.cluster_boot} resamples)" if a.cluster_boot else "no clustered SEs (--cluster-boot 0)"
-    lines = [f"### copying, {run}: the round after, by what the other agents did (loners are the placebo); real casts; {se_note}"]
-    header = ["group", "cast rate", "round-1 cast rate", "win contrast (marginal)", "win contrast within m", "sync gap", "herding slope (day FE)", "streak", "streak within (cond, m)"]
-    rows = []
-    for name, p in pooled.items():
-        rows.append([f"{name} (n={p['villages']})", val(p, "cast_rate", False), lvl(p["round1_cast_rate"]), val(p, "contrast"), val(p, "contrast_within_m"),
-                     val(p, "sync_gap"), val(p, "herding_slope"), val(p, "streak"), val(p, "streak_within")])
+    def r1(p):
+        s = _split_rates(p["round1"])
+        return f"{lvl(s['all']['rate'])} (day 1 {lvl(s['first_day']['rate'])} [{s['first_day']['n']}], after a winner {lvl(s['after_winner']['rate'])}, after none {lvl(s['after_none']['rate'])})"
+
+    def perm(p):
+        sp = p.get("streak_permutation")
+        return "-" if not sp or sp["excess"] is None else f"{sp['excess']:+.3f} (null {sp['null_mean']:+.3f} ± {sp['null_sd']:.3f})"
+
+    se_note = f"± day-clustered bootstrap SE ({a.cluster_boot} resamples, x sqrt(n/(n-1)))" if a.cluster_boot else "no clustered SEs (--cluster-boot 0)"
+    lines = [f"### copying, {run}: the round after, by what the other agents did (loners are the placebo); real casts over all observer turns; {se_note}"]
+    header = ["group", "cast rate", "win contrast (marginal)", "win contrast within m", "sync gap (own, round)", "sync gap (marginal)",
+              "herding slope (agent-day FE + round)", "streak (marginal)", "streak excess over permutation", "streak within (cond, m)"]
+    rows = [[f"{name} (n={p['villages']})", val(p, "cast_rate", False), val(p, "contrast"), val(p, "contrast_within_m"), val(p, "sync_gap"),
+             val(p, "sync_gap_marginal"), val(p, "herding_slope"), val(p, "streak"), perm(p), val(p, "streak_within")] for name, p in pooled.items()]
     lines += _md_table(header, rows)
+    lines.append("round-1 cast rate (parsed turns; the first day is the only round 1 with no village outcome in the observation):")
+    for name, p in pooled.items():
+        lines.append(f"  {name}: {r1(p)}")
     for g in gens:
         v, l = pooled.get(f"villagers_g{g}"), pooled.get(f"loners_g{g}")
         if not (v and l):
             continue
         parts = []
-        for meas in ("contrast", "contrast_within_m", "sync_gap", "herding_slope", "streak", "streak_within", "cast_rate"):
-            dv, dl = _group_values(v)[meas], _group_values(l)[meas]
+        for meas in ("cast_rate", "contrast", "contrast_within_m", "sync_gap", "sync_gap_marginal", "herding_slope", "streak", "streak_within"):
+            dv, dl = v["values"][meas], l["values"][meas]
             if dv is None or dl is None:
                 parts.append(f"{meas} -")
                 continue
-            sv, sl = (v.get("cluster_se") or {}).get(meas), (l.get("cluster_se") or {}).get(meas)
-            se = f" ± {math.sqrt(sv ** 2 + sl ** 2):.3f}" if sv is not None and sl is not None else ""
-            parts.append(f"{meas} {dv - dl:+.3f}{se}")
-        lines.append(f"  g{g} villagers − loners: " + "; ".join(parts) + f"; round-1 cast rate {sgn((v['round1_cast_rate'] or 0) - (l['round1_cast_rate'] or 0))}")
-    lines.append("with attempted casts counted as casts (binomial SEs): " + "; ".join(
-        f"{name}: win contrast {sgn(p['with_attempts']['contrast']['value'])}, within m {sgn(p['with_attempts']['contrast_within_m']['value'])}, sync gap {sgn(p['with_attempts']['sync_gap']['value'])}"
-        for name, p in pooled.items()))
+            sv, sl = (v.get("cluster") or {}).get("se", {}).get(meas), (l.get("cluster") or {}).get("se", {}).get(meas)
+            clus = f" ± {math.sqrt(sv ** 2 + sl ** 2):.3f}" if sv is not None and sl is not None else ""
+            btw = _between_se([x[meas] for x in v["per_village_values"].values()], [x[meas] for x in l["per_village_values"].values()])
+            parts.append(f"{meas} {dv - dl:+.3f}{clus}" + (f" [between-lineage ± {btw:.3f}]" if btw is not None else ""))
+        rv, rl = _split_rates(v["round1"]), _split_rates(l["round1"])
+        r1d = "-" if rv["all"]["rate"] is None or rl["all"]["rate"] is None else f"{rv['all']['rate'] - rl['all']['rate']:+.3f}"
+        lines.append(f"  g{g} villagers − loners (± clustered, villages fixed; [± between-lineage, n-1 df each]): " + "; ".join(parts) + f"; round-1 cast rate {r1d}")
+    lines.append("with attempted casts counted as casts (± binomial SE): " + "; ".join(
+        f"{name}: win contrast {sgn(p['with_attempts']['contrast']['value'])} ± {lvl(p['with_attempts']['contrast']['se'])}, "
+        f"within m {sgn(p['with_attempts']['contrast_within_m']['value'])} ± {lvl(p['with_attempts']['contrast_within_m']['se'])}, "
+        f"sync gap {sgn(p['with_attempts']['sync_gap']['value'])} ± {lvl(p['with_attempts']['sync_gap']['se'])}" for name, p in pooled.items()))
     lines.append("cast rate by the number m of other agents who cast the round before (pooled): ")
     for name, p in pooled.items():
         lines.append(f"  {name}: " + ", ".join(f"m={m} {lvl(x['rate'])} [{x['n']}]" for m, x in p["real"]["by_m"].items()))
@@ -1275,26 +1441,41 @@ def cmd_copying(a):
     for key in sorted(per):
         p = per[key]
         pu = p["pull"]
-        lines.append(f"  {p['village']} g{p['generation']}: cast rate {val(p, 'cast_rate', False)}, round 1 {lvl(p['round1_cast_rate'])}, "
-                     f"win contrast {val(p, 'contrast')} (within m {val(p, 'contrast_within_m')}), sync gap {val(p, 'sync_gap')}, herding slope {val(p, 'herding_slope')}, "
-                     f"streak {val(p, 'streak')}; pull k={pu['k']}: cast {sgn(pu['S']['cast_rate'])} ± {lvl(pu['se']['cast_rate'])}, "
-                     f"win contrast within m {sgn(pu['S']['contrast_within_m'])} ± {lvl(pu['se']['contrast_within_m'])}, sync gap {sgn(pu['S']['sync_gap'])} ± {lvl(pu['se']['sync_gap'])}, "
-                     f"streak {sgn(pu['S']['streak'])} ± {lvl(pu['se']['streak'])}")
+        lines.append(f"  {p['village']} g{p['generation']}: cast rate {val(p, 'cast_rate', False)}, round 1 {r1(p)}, win contrast {val(p, 'contrast')} "
+                     f"(within m {val(p, 'contrast_within_m')}), sync gap {val(p, 'sync_gap')}, herding slope {val(p, 'herding_slope')}, streak {val(p, 'streak')} "
+                     f"(excess {perm(p)}); pull k={pu['k']} of {pu['episodes']}: cast {sgn(pu['S']['cast_rate'])} ± {lvl(pu['se']['cast_rate'])}, "
+                     f"win contrast within m {sgn(pu['S']['contrast_within_m'])} ± {lvl(pu['se']['contrast_within_m'])}, "
+                     f"sync gap {sgn(pu['S']['sync_gap'])} ± {lvl(pu['se']['sync_gap'])}, streak {sgn(pu['S']['streak'])} ± {lvl(pu['se']['streak'])}")
     text = "\n".join(lines)
     print(text)
     with open(a.out, "w") as fid:
-        json.dump({"run": str(run), "k": a.k, "bootstrap": a.bootstrap, "cluster_boot": a.cluster_boot, "bootstrap_seed": a.bootstrap_seed,
+        json.dump({"run": str(run), "k": a.k, "bootstrap": a.bootstrap, "cluster_boot": a.cluster_boot, "perms": a.perms, "bootstrap_seed": a.bootstrap_seed,
                    "per_village_generation": [per[key] for key in sorted(per)], "pooled": pooled}, fid, indent=1)
         fid.write("\n")
     print(f"wrote {a.out}")
+
+
+def _cluster_from_entries(groups, boot: int, rng_key: str) -> dict:
+    """copying_cluster_boot on precomputed village-day entries (pooled groups reuse them)."""
+    rng = random.Random(rng_key)
+    reps = [_stats_from_days([[e[rng.randrange(len(e))] for _ in e] for e in groups]) for _ in range(boot)]
+    n = min(len(e) for e in groups)
+    scale = math.sqrt(n / (n - 1)) if n > 1 else 1.0
+    se, used = {}, {}
+    for m in COPY_MEASURES:
+        vals = [r[m] for r in reps if r[m] is not None]
+        used[m] = len(vals)
+        se[m] = statistics.stdev(vals) * scale if len(vals) > 1 else None
+    return {"se": se, "used": used, "days": n, "boot": boot}
 
 
 # ----------------------------------------------------------------------------
 # the projection: villager minus loner drift gap after G generations, its noise and power
 # ----------------------------------------------------------------------------
 
-# Student t quantiles (0.975, 0.95, 0.80) by degrees of freedom; t_quantiles takes the nearest
-# tabulated df at or below (conservative).
+# Student t quantiles (0.975, 0.95, 0.80) by degrees of freedom (checked against numerical
+# integration to 0.0005, code review of 2026-09-29); t_quantiles takes the nearest tabulated df at
+# or below (conservative).
 T_QUANTILES = {
     1: (12.706, 6.314, 1.376), 2: (4.303, 2.920, 1.061), 3: (3.182, 2.353, 0.978), 4: (2.776, 2.132, 0.941),
     5: (2.571, 2.015, 0.920), 6: (2.447, 1.943, 0.906), 7: (2.365, 1.895, 0.896), 8: (2.306, 1.860, 0.889),
@@ -1316,58 +1497,65 @@ def combine(estimates) -> tuple:
 
 
 def _arm_S(pulls) -> tuple:
-    """(mean pull, SE of the mean, tau) of an arm from per-village (S, bootstrap SE). The SE of the
-    mean is the larger of the between-village SE and the measurement SE of the mean, since three
-    villages cannot estimate a spread below their bootstrap noise (LOG 2026-09-29); tau is the
-    between-village SD of the true pulls net of measurement noise (0 when the observed spread is
-    within noise)."""
+    """(mean pull, SE of the mean, tau, rms) of an arm from per-village (S, bootstrap SE). rms: the
+    RMS bootstrap SE of the pulls, the sampling SD of one generation's realised pull around the
+    village's true pull. The SE of the mean is the larger of the between-village SE and the
+    measurement SE of the mean (three villages cannot estimate a spread below their bootstrap
+    noise). tau: the between-village SD of the true pulls net of measurement noise, 0 when the
+    observed spread is within noise, None with one village."""
     s = [x for x, _ in pulls]
     ses = [e for _, e in pulls]
     n = len(s)
     mean = statistics.fmean(s)
-    meas = math.sqrt(sum(e * e for e in ses)) / n
+    rms = math.sqrt(statistics.fmean([e * e for e in ses]))
+    meas = rms / math.sqrt(n)
     if n < 2:
-        return mean, meas, 0.0
+        return mean, meas, None, rms
     between = statistics.stdev(s) / math.sqrt(n)
-    tau = math.sqrt(max(0.0, statistics.variance(s) - statistics.fmean([e * e for e in ses])))
-    return mean, max(between, meas), tau
+    tau = math.sqrt(max(0.0, statistics.variance(s) - rms * rms))
+    return mean, max(between, meas), tau, rms
 
 
 def project_gap(villagers, loners, transmissions, generations=2, rse_v=0.03, rse_l=0.012, sigma_train=0.0) -> dict:
     """The expected villager-minus-loner gap in the change of the population cast rate after G
     generations at one k, the uncertainty of that expectation, and the noise a run of these seed
-    counts would test it against (LOG 2026-09-28 step 4, corrected 2026-09-29).
+    counts would test it against (LOG 2026-09-28 step 4; corrected twice on 2026-09-29).
 
-    Differential channel only: drift_arm = G x T x mean S_arm, with S the cast-rate pull at k,
+    Differential channel only (A = 1): drift_arm = G x T x mean S_arm, S the cast-rate pull at k,
     constant across generations in expectation (the transmission run's 0.092, 0.054, 0.090 at
-    k = 24 do not reject that). In-village amplification is not in the expectation: it is
-    unmeasured, and simulate_run takes it as a scenario. Two uncertainties are kept apart: the
-    projection's own (the arm means of S, and T, which the arms share, so T scales the gap), and
-    the run noise, the SD of the observed gap across repeat runs: per village Var(change) =
-    (G T tau_arm)^2 + rse_arm^2 + G sigma_train^2. rse_arm: the measurement SE of one village's
-    G-generation change (the day-clustered SE of the population cast rate, times sqrt 2).
-    sigma_train: the per-generation lineage noise of training, not identified by the data.
-    Minimum detectable gaps use Student's t with n_v + n_l - 2 df: at 50 % power t_0.975, at
-    80 % power about t_0.975 + t_0.80."""
-    mean_v, se_mv, tau_v = _arm_S(villagers)
-    mean_l, se_ml, tau_l = _arm_S(loners)
+    k = 24 do not reject that). In-village amplification A is unmeasured; simulate_run takes it
+    as a scenario. Two uncertainties are kept apart. Projection uncertainty: the arm means of S
+    and T (shared by the arms, so it scales the gap; also given as the gap at T +- se_T). Run
+    noise, per village's change: (G T tau)^2 for a persistent village effect, G (T rms)^2 for the
+    sampling noise of each generation's realised pull (rms the RMS bootstrap SE of the arm's
+    pulls), G sigma_train^2 for the lineage noise of training (a scenario: the verification's
+    0.024 and 0.056 per generation are residuals against the realised pull, so they exclude the
+    pull noise), and rse^2 for measuring the change (the day-clustered SE of a village's
+    population cast rate, times sqrt 2). run_sd is the true SD of the gap; pooled_se is what the
+    pooled two-sample t test estimates (the two agree when n_v = n_l). The minimum detectable
+    gaps are central-t approximations on pooled_se with n_v + n_l - 2 df (at df 4 the 50 %
+    value is about 8 % conservative, the 80 % values within 1 %)."""
+    mean_v, se_mv, tau_v, rms_v = _arm_S(villagers)
+    mean_l, se_ml, tau_l, rms_l = _arm_S(loners)
     nv, nl = len(villagers), len(loners)
     T, se_T = combine(transmissions)
     G = generations
     gap = G * T * (mean_v - mean_l)
     proj_sd = math.sqrt((G * T) ** 2 * (se_mv ** 2 + se_ml ** 2) + (G * (mean_v - mean_l) * se_T) ** 2)
-    var_v = (G * T * tau_v) ** 2 + rse_v ** 2 + G * sigma_train ** 2
-    var_l = (G * T * tau_l) ** 2 + rse_l ** 2 + G * sigma_train ** 2
+    var_v = (G * T * (tau_v or 0.0)) ** 2 + G * (T * rms_v) ** 2 + G * sigma_train ** 2 + rse_v ** 2
+    var_l = (G * T * (tau_l or 0.0)) ** 2 + G * (T * rms_l) ** 2 + G * sigma_train ** 2 + rse_l ** 2
+    df = nv + nl - 2
+    c2, c1, c80 = t_quantiles(df)
     run_sd = math.sqrt(var_v / nv + var_l / nl)
-    c2, c1, c80 = t_quantiles(nv + nl - 2)
+    pooled_se = math.sqrt(((nv - 1) * var_v + (nl - 1) * var_l) / df * (1 / nv + 1 / nl))
     return {"generations": G, "T": T, "T_se": se_T, "n_villagers": nv, "n_loners": nl,
-            "mean_S_villagers": mean_v, "se_S_villagers": se_mv, "tau_villagers": tau_v,
-            "mean_S_loners": mean_l, "se_S_loners": se_ml, "tau_loners": tau_l,
+            "mean_S_villagers": mean_v, "se_S_villagers": se_mv, "tau_villagers": tau_v, "rms_S_villagers": rms_v,
+            "mean_S_loners": mean_l, "se_S_loners": se_ml, "tau_loners": tau_l, "rms_S_loners": rms_l,
             "drift_villagers": G * T * mean_v, "drift_loners": G * T * mean_l,
             "gap": gap, "projection_sd": proj_sd, "gap_at_T_minus_se": G * (T - se_T) * (mean_v - mean_l), "gap_at_T_plus_se": G * (T + se_T) * (mean_v - mean_l),
-            "rse_villagers": rse_v, "rse_loners": rse_l, "sigma_train": sigma_train,
-            "run_sd": run_sd, "df": nv + nl - 2, "t_975": c2, "t_95": c1,
-            "mde_50_two_sided": c2 * run_sd, "mde_80_two_sided": (c2 + c80) * run_sd, "mde_80_one_sided": (c1 + c80) * run_sd}
+            "rse_villagers": rse_v, "rse_loners": rse_l, "sigma_train": sigma_train, "var_villagers": var_v, "var_loners": var_l,
+            "run_sd": run_sd, "pooled_se": pooled_se, "df": df, "t_975": c2, "t_95": c1,
+            "mde_50_two_sided": c2 * pooled_se, "mde_80_two_sided": (c2 + c80) * pooled_se, "mde_80_one_sided": (c1 + c80) * pooled_se}
 
 
 def _pooled_t(a, b) -> float:
@@ -1379,26 +1567,44 @@ def _pooled_t(a, b) -> float:
     return (ma - mb) / se if se > 0 else 0.0
 
 
-def simulate_run(proj: dict, amplification: float, sims: int, seed: int) -> dict:
-    """Monte Carlo of the proposed run from a project_gap result. Per simulated run: T drawn from
-    N(T, se_T) floored at 0 and shared by the arms; per village a true pull S ~ N(mean_arm,
-    tau_arm) and a change of the population cast rate A x G x T x S + N(0, noise) for villagers
-    (A: the in-village amplification of a trained shift, unmeasured, a scenario) and
-    G x T x S + N(0, noise) for loners, noise^2 = rse_arm^2 + G sigma_train^2. Then the pooled
-    two-sample t test of villagers against loners (df n_v + n_l - 2) and the one-sample t test of
-    all villages' changes against zero (df n_v + n_l - 1), at 5 % two-sided and one-sided."""
-    rng = random.Random(f"{seed}/simulate_run/{amplification}/{proj['sigma_train']}")
+def simulate_run(proj: dict, amplification: float, sims: int, seed: int, mode: str = "conditional", null: bool = False) -> dict:
+    """Monte Carlo of the proposed run from a project_gap result. Per village: a persistent true
+    pull S_i ~ N(mean_arm, tau_arm); per generation a realised pull S_i + N(0, rms_arm) and a
+    lineage shift N(0, sigma_train); the trained change is the sum over the G generations of
+    T x realised pull + lineage shift; villagers' trained change is multiplied by A (in-village
+    amplification of a trained shift, unmeasured: a scenario; herding would amplify a random
+    trained shift as much as a systematic one); then the measurement noise N(0, rse_arm). Tests:
+    the pooled two-sample t of villagers against loners (df n_v + n_l - 2) and the one-sample t of
+    all villages' changes against zero (df n_v + n_l - 1; any training-induced change of the cast
+    rate, not only selection's), at 5 % two-sided and one-sided. mode "conditional": T and the
+    arm means of S fixed at their estimates (run noise only). mode "assurance": T ~ N(T, se_T)
+    floored at 0 and each arm mean ~ N(mean, se_S) per simulated run (averaged over the
+    projection's uncertainty too). null=True sets the loners' mean pull to the villagers' (the
+    size of the test at these noise levels)."""
+    rng = random.Random(f"{seed}/simulate_run/{mode}/{null}/{amplification}/{proj['sigma_train']}")
     G, nv, nl = proj["generations"], proj["n_villagers"], proj["n_loners"]
-    nz_v = math.sqrt(proj["rse_villagers"] ** 2 + G * proj["sigma_train"] ** 2)
-    nz_l = math.sqrt(proj["rse_loners"] ** 2 + G * proj["sigma_train"] ** 2)
     c2, c1, _ = t_quantiles(nv + nl - 2)
-    d2, d1, _ = t_quantiles(nv + nl - 1)
-    rej2 = rej1 = dr2 = dr1 = 0
+    d2, _d1, _ = t_quantiles(nv + nl - 1)
+    tau_v, tau_l = proj["tau_villagers"] or 0.0, proj["tau_loners"] or 0.0
+    sig = proj["sigma_train"]
+
+    def change(A, t, mean, tau, rms, rse):
+        s_i = rng.gauss(mean, tau)
+        trained = sum(t * rng.gauss(s_i, rms) + rng.gauss(0.0, sig) for _ in range(G))
+        return A * trained + rng.gauss(0.0, rse)
+
+    rej2 = rej1 = dr2 = 0
     gaps = []
     for _ in range(sims):
-        t = max(0.0, rng.gauss(proj["T"], proj["T_se"]))
-        v = [amplification * G * t * rng.gauss(proj["mean_S_villagers"], proj["tau_villagers"]) + rng.gauss(0.0, nz_v) for _ in range(nv)]
-        l = [G * t * rng.gauss(proj["mean_S_loners"], proj["tau_loners"]) + rng.gauss(0.0, nz_l) for _ in range(nl)]
+        if mode == "assurance":
+            t = max(0.0, rng.gauss(proj["T"], proj["T_se"]))
+            mv = rng.gauss(proj["mean_S_villagers"], proj["se_S_villagers"])
+            ml = mv if null else rng.gauss(proj["mean_S_loners"], proj["se_S_loners"])
+        else:
+            t, mv = proj["T"], proj["mean_S_villagers"]
+            ml = mv if null else proj["mean_S_loners"]
+        v = [change(amplification, t, mv, tau_v, proj["rms_S_villagers"], proj["rse_villagers"]) for _ in range(nv)]
+        l = [change(1.0, t, ml, tau_l, proj["rms_S_loners"], proj["rse_loners"]) for _ in range(nl)]
         gaps.append(statistics.fmean(v) - statistics.fmean(l))
         ts = _pooled_t(v, l)
         rej2 += abs(ts) > c2
@@ -1407,16 +1613,15 @@ def simulate_run(proj: dict, amplification: float, sims: int, seed: int) -> dict
         sd = statistics.stdev(both)
         t1 = statistics.fmean(both) / (sd / math.sqrt(len(both))) if sd > 0 else 0.0
         dr2 += abs(t1) > d2
-        dr1 += t1 > d1
-    return {"amplification": amplification, "sigma_train": proj["sigma_train"], "sims": sims,
+    return {"amplification": amplification, "sigma_train": sig, "mode": mode, "null": null, "sims": sims,
             "expected_gap": statistics.fmean(gaps), "sd_gap": statistics.stdev(gaps),
-            "power_gap_two_sided": rej2 / sims, "power_gap_one_sided": rej1 / sims,
-            "power_drift_two_sided": dr2 / sims, "power_drift_one_sided": dr1 / sims}
+            "power_gap_two_sided": rej2 / sims, "power_gap_one_sided": rej1 / sims, "power_drift_two_sided": dr2 / sims}
 
 
 def _read_pulls(paths, arm: str, k: int) -> dict:
-    """Generation-zero pulls of one arm from copying.json files: {village: {S, se, cast_rate_se}}.
-    A village found in two files is an error (ambiguous)."""
+    """Generation-zero pulls of one arm from copying.json files: {village: {S, se, cast_rate_se,
+    episodes}}. A village found in two files is an error (ambiguous); all pulls must come from
+    pools of one size (a k from a pool of another size is another selection strength)."""
     out = {}
     for path in paths:
         data = json.load(open(path))
@@ -1429,8 +1634,8 @@ def _read_pulls(paths, arm: str, k: int) -> dict:
                 raise ValueError(f"{path}: {e['village']} has no bootstrap SE (run copying with --bootstrap)")
             if e["village"] in out:
                 raise ValueError(f"{e['village']} is in {out[e['village']]['file']} and {path}")
-            out[e["village"]] = {"S": e["pull"]["S"]["cast_rate"], "se": e["pull"]["se"]["cast_rate"],
-                                 "cast_rate_se": (e.get("cluster_se") or {}).get("cast_rate"), "file": str(path)}
+            out[e["village"]] = {"S": e["pull"]["S"]["cast_rate"], "se": e["pull"]["se"]["cast_rate"], "episodes": e["episodes"],
+                                 "cast_rate_se": ((e.get("cluster") or {}).get("se") or {}).get("cast_rate"), "file": str(path)}
     if not out:
         raise ValueError(f"no generation-zero {arm} pulls in {paths}")
     return out
@@ -1438,8 +1643,12 @@ def _read_pulls(paths, arm: str, k: int) -> dict:
 
 def cmd_project(a):
     """The projection from generation-zero pulls (copying.json files, villagers and loners given
-    separately), the carry-over estimates and the scenario grid, with the Monte Carlo power."""
+    separately), the carry-over estimates and the scenario grid, with the Monte Carlo power
+    (conditional and assurance) and the test's size at these noise levels."""
     vill, lon = _read_pulls(a.villager_pulls, "villagers", a.k), _read_pulls(a.loner_pulls, "loners", a.k)
+    sizes = {p["episodes"] for p in list(vill.values()) + list(lon.values())}
+    if len(sizes) != 1:
+        raise ValueError(f"pulls come from pools of different sizes {sorted(sizes)}: k={a.k} would mean different selection strengths")
     if len(a.transmission) % 2:
         raise ValueError("--transmission takes value/SE pairs")
     trans = [(float(a.transmission[i]), float(a.transmission[i + 1])) for i in range(0, len(a.transmission), 2)]
@@ -1450,35 +1659,48 @@ def cmd_project(a):
         ses = [p["cast_rate_se"] for p in arm_pulls.values()]
         if any(s is None for s in ses):
             raise ValueError(f"{name}: no clustered cast-rate SE in the files (run copying with --cluster-boot) and no --rse given")
-        return math.sqrt(2) * statistics.fmean(ses), "sqrt(2) x mean day-clustered SE of the villages' population cast rate"
+        return math.sqrt(2) * math.sqrt(statistics.fmean([s * s for s in ses])), "sqrt(2) x RMS day-clustered SE of the villages' population cast rate at generation zero"
 
     rse_v, src_v = rse(vill, a.rse_v, "villagers")
     rse_l, src_l = rse(lon, a.rse_l, "loners")
     V = [(p["S"], p["se"]) for p in vill.values()]
     L = [(p["S"], p["se"]) for p in lon.values()]
     projections = [project_gap(V, L, trans, a.generations, rse_v, rse_l, s) for s in a.sigma_train]
-    sims = [simulate_run(p, amp, a.sims, a.sim_seed) for p in projections for amp in a.amplification]
+    sims = []
+    for p in projections:
+        size = simulate_run(p, 1.0, a.sims, a.sim_seed, "conditional", null=True)
+        for amp in a.amplification:
+            c = simulate_run(p, amp, a.sims, a.sim_seed, "conditional")
+            s = simulate_run(p, amp, a.sims, a.sim_seed, "assurance")
+            sims.append({"sigma_train": p["sigma_train"], "amplification": amp, "conditional": c, "assurance": s, "size": size})
     p0 = projections[0]
     sgn = lambda x, d=3: "-" if x is None else f"{x:+.{d}f}"
-    lines = [f"### projection at k={a.k}, {a.generations} generations, {p0['n_villagers']} villagers vs {p0['n_loners']} loners: gap in the change of the population cast rate"]
+    tau = lambda x: "n/a (1 village)" if x is None else f"{x:.3f}"
+    lines = [f"### projection at k={a.k} of {sizes.pop()}, {a.generations} generations, {p0['n_villagers']} villagers vs {p0['n_loners']} loners (df {p0['df']}): "
+             f"gap in the change of the population cast rate"]
     lines.append("pulls (S on the cast rate ± day-level bootstrap SE): villagers " + ", ".join(f"{n} {sgn(p['S'])} ± {p['se']:.3f}" for n, p in vill.items())
                  + "; loners " + ", ".join(f"{n} {sgn(p['S'])} ± {p['se']:.3f}" for n, p in lon.items()))
-    lines.append(f"mean S: villagers {sgn(p0['mean_S_villagers'])} ± {p0['se_S_villagers']:.3f} (tau {p0['tau_villagers']:.3f}), loners {sgn(p0['mean_S_loners'])} ± {p0['se_S_loners']:.3f} "
-                 f"(tau {p0['tau_loners']:.3f}); T {p0['T']:.3f} ± {p0['T_se']:.3f} from {trans}")
-    lines.append(f"measurement SE of one village's {a.generations}-generation change: villagers {rse_v:.4f} ({src_v}), loners {rse_l:.4f} ({src_l})")
-    lines.append(f"expected drift (differential channel only): villagers {sgn(p0['drift_villagers'])}, loners {sgn(p0['drift_loners'])}; expected gap {sgn(p0['gap'])} "
-                 f"± {p0['projection_sd']:.3f} (projection uncertainty; {sgn(p0['gap_at_T_minus_se'])} to {sgn(p0['gap_at_T_plus_se'])} over T ± its SE)")
-    lines += _md_table(["sigma_train per generation", "run SD of the gap", f"MDE 50 % (t{p0['df']} two-sided)", "MDE 80 % two-sided", "MDE 80 % one-sided"],
-                       [[f"{p['sigma_train']:.3f}", f"{p['run_sd']:.3f}", f"{p['mde_50_two_sided']:.3f}", f"{p['mde_80_two_sided']:.3f}", f"{p['mde_80_one_sided']:.3f}"] for p in projections])
-    lines.append(f"Monte Carlo ({a.sims} runs per cell): A multiplies the villagers' drift (in-village amplification, unmeasured); power at 5 %")
-    lines += _md_table(["A", "sigma_train", "expected gap", "SD of the gap", "power, gap two-sided", "power, gap one-sided", "power, drift of all villages two-sided"],
-                       [[f"{s['amplification']:g}", f"{s['sigma_train']:.3f}", sgn(s["expected_gap"]), f"{s['sd_gap']:.3f}", f"{s['power_gap_two_sided']:.2f}",
-                         f"{s['power_gap_one_sided']:.2f}", f"{s['power_drift_two_sided']:.2f}"] for s in sims])
+    lines.append(f"mean S: villagers {sgn(p0['mean_S_villagers'])} ± {p0['se_S_villagers']:.3f} (tau {tau(p0['tau_villagers'])}, rms {p0['rms_S_villagers']:.3f}), "
+                 f"loners {sgn(p0['mean_S_loners'])} ± {p0['se_S_loners']:.3f} (tau {tau(p0['tau_loners'])}, rms {p0['rms_S_loners']:.3f}); T {p0['T']:.3f} ± {p0['T_se']:.3f} from {trans}")
+    lines.append(f"measurement SE of one village's {a.generations}-generation change: villagers {rse_v:.4f}, loners {rse_l:.4f} ({src_v})")
+    lines.append(f"expected drift (differential channel only, A = 1): villagers {sgn(p0['drift_villagers'])}, loners {sgn(p0['drift_loners'])}; "
+                 f"expected gap {sgn(p0['gap'])} ± {p0['projection_sd']:.3f} (projection uncertainty; {sgn(p0['gap_at_T_minus_se'])} to {sgn(p0['gap_at_T_plus_se'])} over T ± its SE)")
+    lines += _md_table(["sigma_train per generation", "run SD of the gap", "pooled-test SE", f"MDE 50 % (t{p0['df']} two-sided, approx.)", "MDE 80 % two-sided", "MDE 80 % one-sided"],
+                       [[f"{p['sigma_train']:.3f}", f"{p['run_sd']:.3f}", f"{p['pooled_se']:.3f}", f"{p['mde_50_two_sided']:.3f}", f"{p['mde_80_two_sided']:.3f}",
+                         f"{p['mde_80_one_sided']:.3f}"] for p in projections])
+    lines.append(f"Monte Carlo ({a.sims} runs per cell). A multiplies the villagers' trained change (in-village amplification, unmeasured). Conditional: T and the arm means "
+                 f"fixed at their estimates. Assurance: averaged over their uncertainty too. Size: rejection rate with equal arm means and A = 1 (the pooled t is not exact "
+                 f"when the arms' noise differs).")
+    lines += _md_table(["sigma_train", "A", "expected gap (cond.)", "SD of the gap (cond.)", "power two-sided (cond.)", "power one-sided (cond.)",
+                        "power two-sided (assurance)", "size two-sided / one-sided", "power, drift of all villages (cond.)"],
+                       [[f"{s['sigma_train']:.3f}", f"{s['amplification']:g}", sgn(s["conditional"]["expected_gap"]), f"{s['conditional']['sd_gap']:.3f}",
+                         f"{s['conditional']['power_gap_two_sided']:.2f}", f"{s['conditional']['power_gap_one_sided']:.2f}", f"{s['assurance']['power_gap_two_sided']:.2f}",
+                         f"{s['size']['power_gap_two_sided']:.3f} / {s['size']['power_gap_one_sided']:.3f}", f"{s['conditional']['power_drift_two_sided']:.2f}"] for s in sims])
     text = "\n".join(lines)
     print(text)
     with open(a.out, "w") as fid:
         json.dump({"k": a.k, "generations": a.generations, "transmission": trans, "villagers": vill, "loners": lon,
-                   "rse": {"villagers": [rse_v, src_v], "loners": [rse_l, src_l]}, "projections": projections, "simulations": sims,
+                   "rse": {"villagers": rse_v, "loners": rse_l, "source": src_v}, "projections": projections, "simulations": sims,
                    "sims": a.sims, "sim_seed": a.sim_seed}, fid, indent=1)
         fid.write("\n")
     print(f"wrote {a.out}")
@@ -1667,7 +1889,8 @@ def main():
     y.add_argument("--k", type=int, default=None, help="k for the pull (default: each summary's own k)")
     y.add_argument("--bootstrap", type=int, default=0, help="day-level bootstrap resamples for the pull's SE (0 = none)")
     y.add_argument("--bootstrap-seed", type=int, default=0)
-    y.add_argument("--cluster-boot", type=int, default=0, help="day-clustered bootstrap resamples for the contrast and streak SEs (0 = none)")
+    y.add_argument("--cluster-boot", type=int, default=0, help="day-clustered bootstrap resamples for every measure's SE (0 = none; at least 1000 for reported SEs)")
+    y.add_argument("--perms", type=int, default=0, help="within-agent-day permutations for the streak's state-dependence test (0 = none)")
     y.set_defaults(fn=cmd_copying)
     j = sub.add_parser("project", help="villager minus loner drift gap after G generations at one k, its noise and Monte Carlo power (no model)")
     j.add_argument("--villager-pulls", nargs="+", required=True, help="copying.json files with generation-zero villager pulls at --k")
@@ -1675,7 +1898,7 @@ def main():
     j.add_argument("--k", type=int, required=True)
     j.add_argument("--generations", type=int, required=True)
     j.add_argument("--transmission", nargs="+", required=True, help="carry-over estimates as value SE pairs, e.g. 0.34 0.23 0.48 0.18")
-    j.add_argument("--sigma-train", type=float, nargs="+", required=True, help="per-generation lineage noise scenarios (LOG 2026-09-29: 0 0.024 0.056)")
+    j.add_argument("--sigma-train", type=float, nargs="+", required=True, help="per-generation lineage-noise scenarios; the derivation of 0.024 and 0.056 is in LOG 2026-09-29")
     j.add_argument("--amplification", type=float, nargs="+", required=True, help="in-village amplification scenarios on the villagers' drift (1 = none)")
     j.add_argument("--rse-v", type=float, default=None, help="measurement SE of one villager village's change (default: from the files' clustered SEs)")
     j.add_argument("--rse-l", type=float, default=None, help="the same for loners")
