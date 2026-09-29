@@ -1,0 +1,17 @@
+{"call": 1, "round": 10, "episode": 21, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4841, "gen_tokens": 1022, "failed": 3, "at_ceiling": 0, "seconds": 59.12, "peak_gb": 6.48}
+{"call": 2, "round": 2, "episode": 1, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4715, "gen_tokens": 1002, "failed": 1, "at_ceiling": 0, "seconds": 32.61, "peak_gb": 6.48}
+{"call": 3, "round": 2, "episode": 86, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4862, "gen_tokens": 1047, "failed": 4, "at_ceiling": 0, "seconds": 29.91, "peak_gb": 6.48}
+{"call": 4, "round": 7, "episode": 5, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4805, "gen_tokens": 980, "failed": 1, "at_ceiling": 0, "seconds": 28.28, "peak_gb": 6.48}
+{"call": 5, "round": 4, "episode": 113, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4863, "gen_tokens": 1005, "failed": 2, "at_ceiling": 0, "seconds": 28.89, "peak_gb": 6.48}
+{"call": 6, "round": 6, "episode": 136, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4819, "gen_tokens": 1030, "failed": 0, "at_ceiling": 0, "seconds": 29.38, "peak_gb": 6.48}
+{"call": 7, "round": 10, "episode": 125, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4817, "gen_tokens": 1033, "failed": 1, "at_ceiling": 0, "seconds": 29.38, "peak_gb": 6.48}
+{"call": 8, "round": 3, "episode": 114, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4699, "gen_tokens": 946, "failed": 1, "at_ceiling": 0, "seconds": 27.55, "peak_gb": 6.48}
+{"call": 9, "round": 5, "episode": 35, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4858, "gen_tokens": 1041, "failed": 1, "at_ceiling": 0, "seconds": 29.74, "peak_gb": 6.48}
+{"call": 10, "round": 10, "episode": 2, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4637, "gen_tokens": 941, "failed": 0, "at_ceiling": 0, "seconds": 27.48, "peak_gb": 6.48}
+{"call": 11, "round": 7, "episode": 148, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4728, "gen_tokens": 974, "failed": 2, "at_ceiling": 0, "seconds": 27.98, "peak_gb": 6.48}
+{"call": 12, "round": 10, "episode": 128, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4868, "gen_tokens": 1070, "failed": 0, "at_ceiling": 0, "seconds": 30.36, "peak_gb": 6.48}
+{"call": 13, "round": 4, "episode": 39, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4777, "gen_tokens": 967, "failed": 2, "at_ceiling": 0, "seconds": 28.09, "peak_gb": 6.48}
+{"call": 14, "round": 9, "episode": 124, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4761, "gen_tokens": 1003, "failed": 0, "at_ceiling": 0, "seconds": 28.54, "peak_gb": 6.48}
+{"call": 15, "round": 5, "episode": 57, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4786, "gen_tokens": 971, "failed": 1, "at_ceiling": 0, "seconds": 28.03, "peak_gb": 6.48}
+{"call": 16, "round": 8, "episode": 24, "requests": 24, "villages": 1, "prefix_tokens": 5640, "prompt_tokens": 4728, "gen_tokens": 929, "failed": 0, "at_ceiling": 0, "seconds": 27.04, "peak_gb": 6.48}
+{"call": 17, "round": 3, "episode": 101, "requests": 16, "villages": 1, "prefix_tokens": 3760, "prompt_tokens": 3148, "gen_tokens": 611, "failed": 0, "at_ceiling": 0, "seconds": 17.86, "peak_gb": 6.48}

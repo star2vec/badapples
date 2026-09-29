@@ -510,3 +510,147 @@ def test_derangement_has_no_fixed_point():
     for _ in range(50):
         der = herding.derangement(list(range(30)), rng)
         assert sorted(der.values()) == list(range(30)) and all(k != v for k, v in der.items())
+
+
+# ----------------------------------------------------------------------------
+# deeds against words, and the printer with real messages
+# ----------------------------------------------------------------------------
+
+
+def test_advice_class():
+    cases = {"Let's all aim for that golden fish!": "cast", "Go for the golden fish to boost our earnings!": "cast",
+             "Cast together for the golden fish!": "cast", "Keep fishing to build our coin stash.": "fish",
+             "Let's focus on steady fishing for now.": "fish",
+             "I'm casting 3 coins.": None, "Casting for the golden fish!": None, "Starting with fishing.": None,
+             "Go for the golden fish if you have spare coins.": None, "Let's fish first, then cast.": None,
+             "Let's cast before it's too late, carefully.": None, "Join Fisher F for a 3-coin cast.": None,
+             "Let's try a small stake on the golden fish.": None, "继续努力！": None, "Fishing steadily.": None,
+             "Let's aim high with my stake.": None, "Let's go for it at a lower stake for a safer try.": None,
+             "Let's keep fishing for now and save for a cast.": None, "Stick to steady gains; be mindful of golden fish risks.": None,
+             "Join H's attempt for the golden fish.": None, "Let's aim for the gold fish carefully.": None,
+             "Let's take a moderate stake for the golden fish.": None, "Keep an eye on the golden fish.": None,
+             "Let's balance between fishing and casting.": None, "Let's give casting a try, gemeinsam!": "cast",
+             "Let's cast for the golden\u9c7c": None, "Let's fish and try our luck later.": None}
+    for text, want in cases.items():
+        assert herding.advice_class(text) == want, text
+
+
+@pytest.fixture(scope="module")
+def advised(source):
+    pools, drawn, _ = source
+    ap = herding.advice_pools(pools)
+    return ap, {a["sid"]: a["advice"] for a in herding.draw_advice(drawn["pilot"], ap)}
+
+
+def test_advice_draws(source, advised):
+    _, drawn, turns = source
+    ap, adv = advised
+    assert len(adv) == 200
+    for s in drawn["pilot"]:
+        for k in ("cast", "fish"):
+            msgs = adv[s["sid"]][k]
+            assert len(msgs) == N_LINES and len({m["text"] for m in msgs}) == N_LINES
+            for m in msgs:
+                assert (m["village"], m["day"], m["agent"]) != (s["village"], s["day"], s["agent"])
+                t = turns[(m["village"], m["day"], m["agent"], m["round"])]
+                assert not t.failed and t.reply.message.strip() == m["text"] and m["round"] <= 9
+                assert herding.advice_class(m["text"]) == k
+    assert {a["sid"]: a["advice"] for a in herding.draw_advice(drawn["pilot"], ap)} == adv  # deterministic
+
+
+def test_deeds_and_printer_real_prompts(source, advised):
+    _, drawn, _ = source
+    _, adv = advised
+    for s0 in drawn["pilot"][:15]:
+        s = {**s0, "advice": adv[s0["sid"]]}
+        for cond, k in (("deeds_advise_cast", "cast"), ("deeds_advise_fish", "fish")):
+            for m, act in ((0, "fish"), (N_LINES, "cast")):
+                rep = report(s, cond, m)
+                assert rep[0] == herding.DEEDS_HEADER and len(rep) == 1 + N_LINES
+                assert rep[1:] == [f"- {nm}: {act}. Message: {a['text']}" for nm, a in zip(s["names"], s["advice"][k])]
+        for m in (0, N_LINES):
+            real = report(s, "real", m)
+            pr = report(s, "printer_real", m)
+            assert pr[0] == herding.PRINTER_HEADER and len(pr) == 1 + N_LINES
+            assert [l.split(": ", 1)[1] for l in pr[1:]] == [l.split(": ", 1)[1] for l in real[1:]]
+            assert [l.split(": ", 1)[0] for l in pr[1:]] == [f"- Line {k + 1}" for k in range(N_LINES)]
+            assert not any("Fisher" in l.split(": ", 1)[0] for l in pr[1:])
+
+
+def test_new_phases_jobs(source):
+    _, drawn, _ = source
+    deeds = herding.jobs(drawn["pilot"], "pilot_deeds")
+    assert len(deeds) == 800 and {(c, m) for _, _, c, m in deeds} == set(herding.PHASE_JOBS["pilot_deeds"])
+    pr = herding.jobs(drawn["pilot"], "pilot_printer_real")
+    assert len(pr) == 400 and {(c, m) for _, _, c, m in pr} == {("printer_real", 0), ("printer_real", 7)}
+    assert herding.CONDITIONS == ("peers", "printer", "bots", "independence", "real")  # the main run's jobs are unchanged
+    assert len(herding.jobs(drawn["main"], "main")) == 4100
+
+
+def test_deeds_analysis_recovers_known_effects():
+    rows = []
+    for i in range(80):
+        sid = f"pilot-{i:03d}"
+        for cond, m, y in (("deeds_advise_cast", 7, 1), ("deeds_advise_cast", 0, 1), ("deeds_advise_fish", 7, 0), ("deeds_advise_fish", 0, 0),
+                           ("real", 7, 1), ("real", 0, 0), ("peers", 7, i % 2), ("peers", 0, 0)):
+            rows.append({"sid": sid, "condition": cond, "m": m, "intent": bool(y), "real": bool(y)})
+    d = herding.deeds_analysis(rows, "intent", n_boot=20)
+    assert d["effects"]["advice"]["est"] == 1.0 and d["effects"]["actions"]["est"] == 0.0 and d["effects"]["interaction"]["est"] == 0.0
+    assert d["effects"]["agreeing"]["est"] == 1.0 and d["E_real"]["est"] == 1.0 and d["E_peers"]["est"] == 0.5
+    assert d["paired"]["advice - E_real"]["est"] == 0.0 and d["paired"]["actions - E_peers"]["est"] == -0.5
+    assert d["cells"]["fish_actions_advise_cast"]["est"] == 1.0
+
+
+# ----------------------------------------------------------------------------
+# matched report and advice messages, and their crossing
+# ----------------------------------------------------------------------------
+
+
+def test_matched_sentences_are_twins():
+    for kind, templates in (("report", herding.REPORT_TEMPLATES), ("advice", herding.ADVICE_TEMPLATES)):
+        assert len(templates) == 12 and len(set(templates)) == 12
+        for i in range(len(templates)):
+            c, f = herding.matched_sentence(kind, i, "cast"), herding.matched_sentence(kind, i, "fish")
+            assert c != f and c.endswith(".") and f.endswith(".") and "!" not in c + f
+            assert ("golden fish" in c) == ("for a coin" in f)
+            if kind == "report":
+                assert c.startswith(("I ", "This round I", "My move", "In this round I"))
+            else:
+                assert not any(w in c.lower().split() for w in ("i", "my", "me")), c  # no statement of the speaker's own action
+    assert herding.matched_sentence("report", 0, "cast") == "I cast this round."
+    assert herding.matched_sentence("advice", 6, "fish") == "Everyone should fish for a coin this round."
+
+
+def test_matched_prompts(source):
+    _, drawn, _ = source
+    m = {d["sid"]: d for d in herding.draw_matched(drawn["pilot"])}
+    assert m == {d["sid"]: d for d in herding.draw_matched(drawn["pilot"])}  # deterministic
+    for s0 in drawn["pilot"][:15]:
+        d = m[s0["sid"]]
+        assert len(set(d["report"])) == N_LINES and len(set(d["advice"])) == N_LINES
+        s = {**s0, "matched": {"report": d["report"], "advice": d["advice"]}}
+        for cond, kind in (("msg_report", "report"), ("msg_advice", "advice")):
+            for lvl, act in ((0, "fish"), (N_LINES, "cast")):
+                rep = report(s, cond, lvl)
+                assert rep[0] == herding.MESSAGES_HEADER and len(rep) == 1 + N_LINES
+                assert rep[1:] == [f"- {nm}: {herding.matched_sentence(kind, t, act)}" for nm, t in zip(s["names"], d[kind])]
+        for cond, adv in (("cross_advise_cast", "cast"), ("cross_advise_fish", "fish")):
+            for lvl, act in ((0, "fish"), (N_LINES, "cast")):
+                rep = report(s, cond, lvl)
+                assert rep[1:] == [f"- {nm}: {herding.matched_sentence('report', r, act)} {herding.matched_sentence('advice', a, adv)}"
+                                   for nm, r, a in zip(s["names"], d["report"], d["advice"])]
+    assert len(herding.jobs(drawn["pilot"], "pilot_matched")) == 800 and len(herding.jobs(drawn["pilot"], "pilot_cross")) == 800
+
+
+def test_crossed_analysis_reads_its_own_cells():
+    rows = []
+    for i in range(40):
+        sid = f"pilot-{i:03d}"
+        for cond, m, y in (("cross_advise_cast", 7, 1), ("cross_advise_cast", 0, 1), ("cross_advise_fish", 7, 1), ("cross_advise_fish", 0, 0),
+                           ("real", 7, 0), ("real", 0, 0), ("peers", 7, 0), ("peers", 0, 0), ("msg_report", 7, 1), ("msg_report", 0, 0)):
+            rows.append({"sid": sid, "condition": cond, "m": m, "intent": bool(y), "real": bool(y)})
+    d = herding.deeds_analysis(rows, "intent", 20, conds=("cross_advise_cast", "cross_advise_fish"), refs=("real", "msg_report"))
+    assert d["cells"]["fish_actions_advise_fish"]["est"] == 0.0 and d["cells"]["cast_actions_advise_fish"]["est"] == 1.0
+    assert d["effects"]["actions"]["est"] == 0.5 and d["effects"]["advice"]["est"] == 0.5 and d["E_msg_report"]["est"] == 1.0
+    with pytest.raises(TypeError):  # the condition names cannot be passed by position (the 09-30 wiring bug)
+        herding.deeds_analysis(rows, "intent", 20, "k", ("cross_advise_cast", "cross_advise_fish"))

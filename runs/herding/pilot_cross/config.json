@@ -1,0 +1,13 @@
+{
+ "phase": "pilot_cross",
+ "model": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+ "adapter": null,
+ "max_tokens": 256,
+ "temperature": 1.0,
+ "top_p": 1.0,
+ "completion_batch": 24,
+ "chunk": 24,
+ "situations_sha256": "f13d9f913b46154a5303f532aa0ca65490f80e926c1c49042aa0f114188d8060",
+ "jobs": 800,
+ "matched_sha256": "4ad64c39e054513b97855d2081dd30df93fa3ff9d766e91cb4dbde2e4089ef05"
+}

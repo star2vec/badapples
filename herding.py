@@ -27,6 +27,10 @@ Subcommands
   situations  draw the main run's 100 and the pilot's 200 situations (disjoint agent-days)
   run         play a phase's jobs under the base model; resumable
   analyse     the tables for LOG.md
+  advice      draw, for the pilot's situations, 7 logged messages that advise casting and 7 that advise
+              fishing without reporting the speaker's own action (the deeds-against-words run)
+  matched     draw, for the pilot's situations, the paraphrase templates of the matched report and advice
+              messages (the report-against-advice runs)
   placebo     no model: the in-game herding measures of the logged villagers against the others of
               their own day, and against the others of another day of the same village at the same
               round (a placebo they never saw)
@@ -57,15 +61,27 @@ OUT = Path("runs/herding")
 N_LINES = 7
 LEVELS = tuple(range(N_LINES + 1))
 MAX_STAKE = 5
-PHASES = {"main": 100, "pilot": 200, "pilot_real": 200}  # replies per job cell (user's brief and plan, LOG 2026-09-29)
-# the situation set each phase plays: pilot_real is the real-messages condition at 0 and 7 on the pilot's
-# situations and keys (user's decision after the pilot, LOG 2026-09-29), read paired against the peers pilot
-SITUATIONS_OF = {"main": "main", "pilot": "pilot", "pilot_real": "pilot"}
-COMPARE_WITH = {"pilot_real": "pilot"}
+PHASES = {"main": 100, "pilot": 200, "pilot_real": 200, "pilot_deeds": 200, "pilot_printer_real": 200, "pilot_matched": 200,
+          "pilot_cross": 200}  # replies per job cell
+# the situation set each phase plays: the pilot_* phases after the pilot play the pilot's situations with their
+# keys (user's decisions, LOG 2026-09-29) and are read paired against the earlier pilots
+SITUATIONS_OF = {"main": "main", "pilot": "pilot", "pilot_real": "pilot", "pilot_deeds": "pilot", "pilot_printer_real": "pilot",
+                 "pilot_matched": "pilot", "pilot_cross": "pilot"}
+COMPARE_WITH = {"pilot_real": ("pilot",), "pilot_deeds": ("pilot_real", "pilot"), "pilot_printer_real": ("pilot_real", "pilot"),
+                "pilot_matched": ("pilot_real", "pilot"), "pilot_cross": ("pilot_matched", "pilot_real", "pilot")}
 CONDITIONS = ("peers", "printer", "bots", "independence", "real")
+# deeds against words: every line shows the fisher's action (all cast at m = 7, all fish at m = 0) and a
+# logged message advising casting or fishing; printer_real: the real condition's messages from the printer
+EXTRA_CONDITIONS = ("deeds_advise_cast", "deeds_advise_fish", "printer_real", "msg_report", "msg_advice", "cross_advise_cast",
+                    "cross_advise_fish")
+ALL_CONDITIONS = CONDITIONS + EXTRA_CONDITIONS
 NONE = "none"  # the no-report reference, one level
 PHASE_JOBS = {"pilot": (("peers", 0), ("peers", N_LINES)),
               "pilot_real": (("real", 0), ("real", N_LINES)),
+              "pilot_deeds": (("deeds_advise_cast", 0), ("deeds_advise_cast", N_LINES), ("deeds_advise_fish", 0), ("deeds_advise_fish", N_LINES)),
+              "pilot_printer_real": (("printer_real", 0), ("printer_real", N_LINES)),
+              "pilot_matched": (("msg_report", 0), ("msg_report", N_LINES), ("msg_advice", 0), ("msg_advice", N_LINES)),
+              "pilot_cross": (("cross_advise_cast", 0), ("cross_advise_cast", N_LINES), ("cross_advise_fish", 0), ("cross_advise_fish", N_LINES)),
               "main": tuple((c, m) for c in CONDITIONS for m in LEVELS) + ((NONE, None),)}
 
 GOLDEN_NONE = "Golden fish caught last round: none."
@@ -74,11 +90,50 @@ PRINTER_HEADER = "A random printer that is unrelated to the pond printed these l
 BOTS_LINE = "The other fishers are bots that choose at random."
 INDEPENDENCE_LINE = "Every cast is independent; the others know the same odds as you and nothing more."
 MESSAGES_HEADER = "Messages from the others last round:"  # the game's (pond.build_observation)
+DEEDS_HEADER = "What the other fishers did last round, and their messages:"
+# matched messages (user's brief, LOG 2026-09-29): a first-person report of the fisher's own action, or advice to the
+# others with no statement of the speaker's own action; short, plain, one sentence each. Every template has a casting
+# twin and a fishing twin, so between 0 and 7 casters a line keeps its template and only the action words change.
+MATCHED_WORDS = {"cast": {"past": "cast", "inf": "cast", "ing": "casting", "obj": " for the golden fish"},
+                 "fish": {"past": "fished", "inf": "fish", "ing": "fishing", "obj": " for a coin"}}
+REPORT_TEMPLATES = ("I {past} this round.", "This round I {past}.", "I chose to {inf} this round.", "I decided to {inf} this round.",
+                    "My move this round was to {inf}.", "I went with {ing} this round.", "I {past}{obj} this round.",
+                    "This round I {past}{obj}.", "I chose to {inf}{obj} this round.", "My move this round was to {inf}{obj}.",
+                    "I spent this round {ing}{obj}.", "In this round I {past}{obj}.")
+ADVICE_TEMPLATES = ("Everyone should {inf} this round.", "This round, everyone should {inf}.", "All of you should {inf} this round.",
+                    "You should all {inf} this round.", "Everyone ought to {inf} this round.", "Each of you should {inf} this round.",
+                    "Everyone should {inf}{obj} this round.", "This round, everyone should {inf}{obj}.", "All of you should {inf}{obj} this round.",
+                    "You should all {inf}{obj} this round.", "Everyone ought to {inf}{obj} this round.", "Each of you should {inf}{obj} this round.")
+MATCHED_FILE = "matched.jsonl"
+
+
+def matched_sentence(kind: str, template: int, action: str) -> str:
+    return (REPORT_TEMPLATES if kind == "report" else ADVICE_TEMPLATES)[template].format(**MATCHED_WORDS[action])
 CAST_WORD, FISH_WORD = "cast", "fish"
 
 MENTIONS = re.compile(r"\b(cast|casting|casts|golden)\b", re.I)  # the pools' 72 % / 18 % (LOG 2026-09-29)
 OPENER = re.compile(r"\b(start|starting|begin|beginning)\b", re.I)
 NAMES_FISHER = re.compile(r"\bFisher [A-H]\b")
+# advice without a report of the speaker's own action (user's brief, LOG 2026-09-29): a hortative or imperative
+# opening, no first person singular, no fisher's name (full or a bare letter), English only; advice to cast names
+# the golden fish or casting and carries no hedge (the stake's size included), condition, deferral, watching,
+# saving or balancing, and no fishing beyond the golden fish; advice to fish names fishing and nothing of casting,
+# stakes, luck or reward (tightened after the pre-run review, LOG 2026-09-29)
+ADVICE_FIRST_PERSON = re.compile(r"\b(i|i'm|im|i'll|i've|i'd|me|my|mine|myself)\b", re.I)
+ADVICE_OPENING = re.compile(r"^\W*(let's|lets|let us|keep|stay|stick|continue|go|try|aim|cast|fish|consider|take|join|gather|build|"
+                            r"focus|save|play|hold|wait|don't|do not|avoid|remember|time to)\b", re.I)
+ADVICE_CAST_WORDS = re.compile(r"\b(cast|casting|casts|golden|stake|staking|bet|betting|jackpot)\b", re.I)
+ADVICE_FISH_WORDS = re.compile(r"\b(fish|fishing|fishes)\b", re.I)
+ADVICE_HEDGE = re.compile(r"\b(not|no|don't|dont|avoid|hold off|wait|before|first|later|then|until|unless|if|careful|carefully|"
+                          r"cautious|cautiously|caution|reconsider|risk|risky|safe|safely|safer|safest|maybe|might|small|smaller|smallest|low|lower|lowest|modest|conservative|"
+                          r"moderate|moderately|medium|reduced|reduce)\b", re.I)
+ADVICE_DEFER = re.compile(r"\b(save|saving|saved|gather|gathering|build|building|accumulat\w*|for now|future|later|after|eye|eyes|alert|"
+                          r"watch|watching|monitor|prepared|ready|prioritize|regroup|balance|balanced|balancing|risks|risking|mindful|"
+                          r"reckless|steady|steadily|reserves|prudent|either)\b", re.I)
+ADVICE_GOLDEN_FISH = re.compile(r"\bgold(en)? fish\b", re.I)
+ADVICE_FISH_EXCLUDE = re.compile(r"\b(gold|stakes|luck|reward|risk for)\b", re.I)
+ADVICE_LETTER_NAME = re.compile(r"(?<![A-Za-z'])[A-H]'s\b")
+ADVICE_NON_ENGLISH = re.compile(r"[^\x00-\x7F\u2018\u2019\u201c\u201d\u2013\u2014\u2026]")
 
 GEN = {"max_tokens": 256, "temperature": 1.0, "top_p": 1.0, "completion_batch": 24, "chunk": 24}
 
@@ -197,9 +252,34 @@ def observation(sit: dict, condition: str, m) -> str:
         if m is not None:
             raise ValueError("the no-report condition has no level")
         return "\n".join(lines)
-    if condition not in CONDITIONS or m not in LEVELS:
+    if condition not in ALL_CONDITIONS or m not in LEVELS:
         raise ValueError(f"unknown condition or level {condition!r} {m!r}")
     casts = cast_lines(sit, m)
+    if condition in ("deeds_advise_cast", "deeds_advise_fish"):
+        advice = sit["advice"]["cast" if condition == "deeds_advise_cast" else "fish"]
+        lines.append(DEEDS_HEADER)
+        for k, name in enumerate(sit["names"]):
+            lines.append(f"- {name}: {CAST_WORD if k in casts else FISH_WORD}. Message: {advice[k]['text']}")
+        return "\n".join(lines)
+    if condition in ("msg_report", "msg_advice"):
+        kind = "report" if condition == "msg_report" else "advice"
+        lines.append(MESSAGES_HEADER)
+        for k, name in enumerate(sit["names"]):
+            lines.append(f"- {name}: {matched_sentence(kind, sit['matched'][kind][k], CAST_WORD if k in casts else FISH_WORD)}")
+        return "\n".join(lines)
+    if condition in ("cross_advise_cast", "cross_advise_fish"):
+        advised = CAST_WORD if condition == "cross_advise_cast" else FISH_WORD
+        lines.append(MESSAGES_HEADER)
+        for k, name in enumerate(sit["names"]):
+            report = matched_sentence("report", sit["matched"]["report"][k], CAST_WORD if k in casts else FISH_WORD)
+            lines.append(f"- {name}: {report} {matched_sentence('advice', sit['matched']['advice'][k], advised)}")
+        return "\n".join(lines)
+    if condition == "printer_real":
+        lines.append(PRINTER_HEADER)
+        for k in range(N_LINES):
+            msg = sit["caster_msgs"][k] if k in casts else sit["fisher_msgs"][k]
+            lines.append(f"- Line {k + 1}: {msg['text']}")
+        return "\n".join(lines)
     if condition == "real":
         lines.append(MESSAGES_HEADER)
         for k, name in enumerate(sit["names"]):
@@ -293,14 +373,84 @@ def check_rows(rows: list, situations: dict):
 
 
 def run_config(phase: str, situations_file: Path) -> dict:
-    return {"phase": phase, "model": pond.MODEL, "adapter": None, **GEN, "situations_sha256": _sha(situations_file),
-            "jobs": len(PHASE_JOBS[phase]) * PHASES[phase]}
+    cfg = {"phase": phase, "model": pond.MODEL, "adapter": None, **GEN, "situations_sha256": _sha(situations_file),
+           "jobs": len(PHASE_JOBS[phase]) * PHASES[phase]}
+    if phase == "pilot_deeds":
+        cfg["advice_sha256"] = _sha(situations_file.parent / ADVICE_FILE)
+    if phase in ("pilot_matched", "pilot_cross"):
+        cfg["matched_sha256"] = _sha(situations_file.parent / MATCHED_FILE)
+    return cfg
+
+
+ADVICE_FILE = "advice.jsonl"
 
 
 def load_situations(path: Path) -> dict:
+    """{phase: [situation]}; the pilot's situations carry their advice draws when advice.jsonl exists."""
+    advice = {}
+    if (path.parent / ADVICE_FILE).exists():
+        advice = {a["sid"]: a["advice"] for a in village._read_jsonl(path.parent / ADVICE_FILE)}
+    matched = {}
+    if (path.parent / MATCHED_FILE).exists():
+        matched = {m["sid"]: {"report": m["report"], "advice": m["advice"]} for m in village._read_jsonl(path.parent / MATCHED_FILE)}
     out = {}
     for s in village._read_jsonl(path):
+        if s["sid"] in advice:
+            s["advice"] = advice[s["sid"]]
+        if s["sid"] in matched:
+            s["matched"] = matched[s["sid"]]
         out.setdefault(s["phase"], []).append(s)
+    return out
+
+
+def advice_class(text: str):
+    """"cast", "fish" or None (not advice by the filter, LOG 2026-09-29)."""
+    if (ADVICE_FIRST_PERSON.search(text) or NAMES_FISHER.search(text) or ADVICE_LETTER_NAME.search(text)
+            or ADVICE_NON_ENGLISH.search(text) or not ADVICE_OPENING.search(text)):
+        return None
+    c, f = bool(ADVICE_CAST_WORDS.search(text)), bool(ADVICE_FISH_WORDS.search(text))
+    if c:
+        other_fishing = ADVICE_FISH_WORDS.search(ADVICE_GOLDEN_FISH.sub("", text))
+        return None if ADVICE_HEDGE.search(text) or ADVICE_DEFER.search(text) or other_fishing else "cast"
+    if f and not ADVICE_FISH_EXCLUDE.search(text):
+        return "fish"
+    return None
+
+
+def advice_pools(pools: dict) -> dict:
+    """{"cast"|"fish": [(village, day, agent, round, writer's action, message)]}: the messages the others were
+    shown (parsed cast or fish turns of rounds 1 to 9, non-empty) that the filter classes as advice."""
+    out = {"cast": [], "fish": []}
+    for label in sorted(pools):
+        for ep in pools[label]:
+            for t in ep.turns:
+                if t.failed or t.round > 9 or t.reply.action not in ("cast", "fish") or not t.reply.message.strip():
+                    continue
+                k = advice_class(t.reply.message.strip())
+                if k:
+                    out[k].append((label, ep.episode, ep.agent, t.round, t.reply.action, t.reply.message.strip()))
+    return out
+
+
+def draw_advice(situations: list, pools: dict, seed: str = "herding") -> list:
+    """Per situation, 7 advice-to-cast and 7 advice-to-fish messages with distinct texts, drawn from every round
+    of the source villages except the situation's own agent-day."""
+    out = []
+    for s in situations:
+        rng = random.Random(f"{seed}/advice/{s['sid']}")
+        own = (s["village"], s["day"], s["agent"])
+        drawn = {}
+        for k in ("cast", "fish"):
+            pool = [e for e in pools[k] if e[:3] != own]
+            picks, texts = [], set()
+            for e in rng.sample(pool, len(pool)):
+                if e[5] not in texts:
+                    picks.append({"text": e[5], "village": e[0], "day": e[1], "agent": e[2], "round": e[3], "writer_action": e[4]})
+                    texts.add(e[5])
+                if len(picks) == N_LINES:
+                    break
+            drawn[k] = picks
+        out.append({"sid": s["sid"], "advice": drawn})
     return out
 
 
@@ -316,6 +466,44 @@ def game_template() -> str:
     if template != cfg["system_template"] or cfg["max_stake"] != MAX_STAKE:
         raise ValueError("the source run's system template differs from the game's")
     return template
+
+
+def draw_matched(situations: list, seed: str = "herding") -> list:
+    """Per situation, 7 distinct report templates and 7 distinct advice templates for the 7 lines (line k keeps its
+    templates at every level and in every cell), with the texts written out for reading."""
+    out = []
+    for s in situations:
+        rng = random.Random(f"{seed}/matched/{s['sid']}")
+        rep = rng.sample(range(len(REPORT_TEMPLATES)), N_LINES)
+        adv = rng.sample(range(len(ADVICE_TEMPLATES)), N_LINES)
+        out.append({"sid": s["sid"], "report": rep, "advice": adv,
+                    "texts": {f"{kind}_{a}": [matched_sentence(kind, t, a) for t in idx] for kind, idx in (("report", rep), ("advice", adv))
+                              for a in (CAST_WORD, FISH_WORD)}})
+    return out
+
+
+def cmd_matched(a):
+    out = Path(a.out)
+    path = out / MATCHED_FILE
+    if path.exists():
+        sys.exit(f"{path} exists; refusing to redraw")
+    village._write_jsonl(path, draw_matched(load_situations(out / "situations.jsonl")["pilot"]))
+    print(f"wrote {path} sha256 {_sha(path)}")
+
+
+def cmd_advice(a):
+    out = Path(a.out)
+    path = out / ADVICE_FILE
+    if path.exists():
+        sys.exit(f"{path} exists; refusing to redraw the advice")
+    pools = {v: village._load_pool(SOURCE / v) for v in SOURCE_VILLAGES}
+    ap = advice_pools(pools)
+    sits = load_situations(out / "situations.jsonl")["pilot"]
+    village._write_jsonl(path, draw_advice(sits, ap))
+    for k, rows in ap.items():
+        print(f"advice to {k}: {len(rows)} messages, {len({r[5] for r in rows})} distinct texts, "
+              f"written with a cast {sum(1 for r in rows if r[4] == 'cast')}, with a fish {sum(1 for r in rows if r[4] == 'fish')}")
+    print(f"wrote {path} sha256 {_sha(path)}")
 
 
 def cmd_situations(a):
@@ -515,10 +703,10 @@ def logit_E(cs, sids, cond):
     return logit((k7 + 0.5) / (n7 + 1)) - logit((k0 + 0.5) / (n0 + 1))
 
 
-def analyse(rows: list, outcome: str, n_boot: int = 2000, key: str = "herding/boot") -> dict:
+def analyse(rows: list, outcome: str, n_boot: int = 2000, key: str = "herding/boot", extra_refs=()) -> dict:
     cs = cells(rows, outcome)
     sids = sorted(cs)
-    conds = [c for c in CONDITIONS if any((c, m) in cs[s] for s in sids for m in LEVELS)]
+    conds = [c for c in ALL_CONDITIONS if any((c, m) in cs[s] for s in sids for m in LEVELS)]
     res = {"outcome": outcome, "situations": len(sids), "conditions": {}, "vs_peers": {}, "vs_none": {}}
     per = {c: per_situation(cs, c) for c in conds}
     for c in conds:
@@ -563,6 +751,22 @@ def analyse(rows: list, outcome: str, n_boot: int = 2000, key: str = "herding/bo
             lv = boot(both, lambda b, c=c: logit_E(cs, b, c) - logit_E(cs, b, "peers"), n_boot, f"{key}/dlogit/{c}/{outcome}")
             d["logit_E"] = {"est": logit_E(cs, both, c) - logit_E(cs, both, "peers"), "lo": pct(lv, 0.025), "hi": pct(lv, 0.975)}
             res["vs_peers"][c] = d
+    for ref in extra_refs:
+        if ref not in per or not per[ref]:
+            continue
+        res[f"vs_{ref}"] = {}
+        for c in conds:
+            if c in (ref, "peers") or not per[c]:
+                continue
+            both = sorted(set(per[c]) & set(per[ref]))
+            d = {}
+            for q in ("E", "level"):
+                diff = {s: per[c][s][q] - per[ref][s][q] for s in both}
+                d[q] = mean_se(diff[s] for s in both)
+                d[q]["boot"] = boot_ci(both, diff, n_boot, f"{key}/vs_{ref}/{q}/{c}/{outcome}")
+            lv = boot(both, lambda b, c=c: logit_E(cs, b, c) - logit_E(cs, b, ref), n_boot, f"{key}/dlogit_{ref}/{c}/{outcome}")
+            d["logit_E"] = {"est": logit_E(cs, both, c) - logit_E(cs, both, ref), "lo": pct(lv, 0.025), "hi": pct(lv, 0.975)}
+            res[f"vs_{ref}"][c] = d
     if "printer" in per and "bots" in per and per["printer"] and per["bots"]:
         both = sorted(set(per["printer"]) & set(per["bots"]))
         res["printer_vs_bots"] = {}
@@ -703,16 +907,57 @@ def cmd_analyse(a):
            "attempts": sum(r["attempt"] for r in rows), "descriptives": descriptives(rows, situations)}
     both = rows
     if a.phase in COMPARE_WITH:
-        res["compared_with"] = COMPARE_WITH[a.phase]
-        both = rows + complete_rows(out, COMPARE_WITH[a.phase], situations)
+        res["compared_with"] = list(COMPARE_WITH[a.phase])
+        for ph in COMPARE_WITH[a.phase]:
+            both = both + complete_rows(out, ph, situations)
+    extra = {"pilot_deeds": ("real",), "pilot_printer_real": ("real",), "pilot_matched": ("real", "msg_report"),
+             "pilot_cross": ("real", "msg_report", "msg_advice")}.get(a.phase, ())
     for outcome in ("intent", "real"):
-        res[outcome] = analyse(both, outcome, a.boot)
+        res[outcome] = analyse(both, outcome, a.boot, extra_refs=extra)
     if a.phase == "pilot":
         res["resolving_power"] = resolving_power(rows, PHASES["main"])
-    else:
+    elif a.phase in ("main", "pilot_real"):
         res["real_messages"] = {o: real_decomposition(rows, situations, o, a.boot) for o in ("intent", "real")}
+    if a.phase == "pilot_deeds":
+        res["deeds"] = {o: deeds_analysis(both, o, a.boot) for o in ("intent", "real")}
+    if a.phase == "pilot_cross":
+        res["deeds"] = {o: deeds_analysis(both, o, a.boot, conds=("cross_advise_cast", "cross_advise_fish"), refs=("real", "peers", "msg_report", "msg_advice"))
+                        for o in ("intent", "real")}
     (d / "summary.json").write_text(json.dumps(res, indent=1, default=str) + "\n")
     print_summary(res)
+
+
+def deeds_analysis(rows: list, outcome: str, n_boot: int = 2000, key: str = "herding/boot", *,
+                   conds=("deeds_advise_cast", "deeds_advise_fish"), refs=("real", "peers")) -> dict:
+    """Deeds against words, per situation: the four cells (actions all cast or all fish x advice to cast or to
+    fish), the effect of the actions (cast minus fish, averaged over the advice), of the advice (to cast minus
+    to fish, averaged over the actions), their interaction, deeds and words agreeing (all cast and advise
+    casting minus all fish and advise fishing), and paired against the real messages' and the peers' E."""
+    cs = cells(rows, outcome)
+    cell = {"cast_actions_advise_cast": (conds[0], N_LINES), "fish_actions_advise_cast": (conds[0], 0),
+            "cast_actions_advise_fish": (conds[1], N_LINES), "fish_actions_advise_fish": (conds[1], 0)}
+    sids = sorted(s for s, c in cs.items() if all(v in c for v in cell.values()))
+    y = {s: {name: _cell(cs[s], v) for name, v in cell.items()} for s in sids}
+    per = {}
+    for s in sids:
+        c = y[s]
+        per[s] = {"actions": ((c["cast_actions_advise_cast"] - c["fish_actions_advise_cast"]) + (c["cast_actions_advise_fish"] - c["fish_actions_advise_fish"])) / 2,
+                  "advice": ((c["cast_actions_advise_cast"] + c["fish_actions_advise_cast"]) - (c["cast_actions_advise_fish"] + c["fish_actions_advise_fish"])) / 2,
+                  "interaction": (c["cast_actions_advise_cast"] - c["fish_actions_advise_cast"]) - (c["cast_actions_advise_fish"] - c["fish_actions_advise_fish"]),
+                  "agreeing": c["cast_actions_advise_cast"] - c["fish_actions_advise_fish"]}
+    res = {"outcome": outcome, "situations": len(sids), "cells": {n: mean_se(y[s][n] for s in sids) for n in cell}, "effects": {}}
+    for q in ("actions", "advice", "interaction", "agreeing"):
+        res["effects"][q] = mean_se(per[s][q] for s in sids)
+        res["effects"][q]["boot"] = boot_ci(sids, {s: per[s][q] for s in sids}, n_boot, f"{key}/deeds/{q}/{outcome}")
+    for ref in refs:
+        ref_e = {s: _cell(cs[s], (ref, N_LINES)) - _cell(cs[s], (ref, 0)) for s in sids if (ref, 0) in cs[s] and (ref, N_LINES) in cs[s]}
+        if not ref_e:
+            continue
+        res[f"E_{ref}"] = mean_se(ref_e.values())
+        for q in ("actions", "advice", "agreeing"):
+            both = sorted(ref_e)
+            res.setdefault("paired", {})[f"{q} - E_{ref}"] = mean_se(per[s][q] - ref_e[s] for s in both)
+    return res
 
 
 def complete_rows(out: Path, phase: str, situations: dict) -> list:
@@ -754,6 +999,11 @@ def print_summary(res: dict):
             for c, dd in r["vs_peers"].items():
                 cols = [_dci(dd[q]) if q in dd else "" for q in ("7b", "E", "level", "ratio_7b", "logit_E")]
                 print(f"| {c} − peers | " + " | ".join(cols) + " |")
+        for vs in [k for k in r if k.startswith("vs_") and k not in ("vs_peers", "vs_none") and r[k]]:
+            ref = vs[3:]
+            print(f"\n| against {ref} | E | level | logit E |\n|---|---|---|---|")
+            for c, dd in r[vs].items():
+                print(f"| {c} − {ref} | {_dci(dd['E'])} | {_dci(dd['level'])} | {_dci(dd['logit_E'])} |")
         if "printer_vs_bots" in r:
             pb = r["printer_vs_bots"]
             print(f"| printer − bots | {_dci(pb['7b'])} | {_dci(pb['E'])} | {_dci(pb['level'])} | | |")
@@ -768,6 +1018,21 @@ def print_summary(res: dict):
               f"3 SE line (applied: top of range) {rp['line_3se'][1]:.3f}, range {rp['line_3se'][0]:.3f} to {rp['line_3se'][1]:.3f}; "
               f"approximate SE of peers 7b {rp['se_7b_peers_main_approx']:.3f}, "
               f"of a 7b difference {rp['se_d7b_main_approx'][0]:.3f} to {rp['se_d7b_main_approx'][1]:.3f}")
+    if "deeds" in res:
+        for outcome, dd in res["deeds"].items():
+            print(f"\n## deeds against words, {outcome} ({dd['situations']} situations; ± SE clustered by situation [95 % CI])")
+            print("| actions \\ advice | advise casting | advise fishing |\n|---|---|---|")
+            for act in ("cast", "fish"):
+                a_c, a_f = dd["cells"][f"{act}_actions_advise_cast"], dd["cells"][f"{act}_actions_advise_fish"]
+                print(f"| all {act} | {_ci(a_c)} | {_ci(a_f)} |")
+            for q, name in (("actions", "effect of the actions (cast − fish, mean over advice)"), ("advice", "effect of the advice (cast − fish, mean over actions)"),
+                            ("interaction", "interaction"), ("agreeing", "deeds and words agreeing (all cast + advise cast − all fish + advise fish)")):
+                print(f"{name}: {_dci(dd['effects'][q])}")
+            for ref in [k[2:] for k in dd if k.startswith("E_")]:
+                if f"E_{ref}" in dd:
+                    print(f"E_{ref} on the same situations: {_dci(dd[f'E_{ref}'])}")
+            for name, b in dd.get("paired", {}).items():
+                print(f"  paired {name}: {_dci(b)}")
     if "real_messages" in res:
         rm = res["real_messages"]["intent"]
         print("\nreal messages, mean drawn lines by level (mentions cast/golden; openers; name a fisher):")
@@ -952,6 +1217,12 @@ def main():
     an.add_argument("--out", default=str(OUT))
     an.add_argument("--boot", type=int, default=2000)
     an.set_defaults(fn=cmd_analyse)
+    mt = sub.add_parser("matched")
+    mt.add_argument("--out", default=str(OUT))
+    mt.set_defaults(fn=cmd_matched)
+    ad = sub.add_parser("advice")
+    ad.add_argument("--out", default=str(OUT))
+    ad.set_defaults(fn=cmd_advice)
     pl = sub.add_parser("placebo")
     pl.add_argument("--out", default=str(OUT / "placebo.json"))
     pl.add_argument("--perms", type=int, default=1000)
