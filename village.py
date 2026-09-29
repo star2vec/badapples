@@ -224,6 +224,11 @@ def sample_key(seed: int, generation: int, episode: int, round: int, agent: int)
     return f"{seed}/g{generation}/e{episode}/r{round}/sample/{agent}"
 
 
+def request_key(req) -> str:
+    """The game's sampling key of a Request; ModelPlayers' default key_fn."""
+    return sample_key(req.seed, req.generation, req.episode, req.round, req.agent)
+
+
 def key_from_string(s: str):
     import mlx.core as mx
 
@@ -266,13 +271,14 @@ class ModelPlayers:
     """act_batch(requests) -> outcomes for pond.play_villages, with the model."""
 
     def __init__(self, model, tokenizer, systems, *, max_tokens, temperature, top_p, max_stake, timing_path=None,
-                 completion_batch_size=64, prefill_batch_size=8, group_size=1):
+                 completion_batch_size=64, prefill_batch_size=8, group_size=1, key_fn=request_key):
         from mlx_lm.generate import BatchGenerator
 
         self.model, self.tokenizer = model, tokenizer
         self.max_tokens, self.temperature, self.top_p, self.max_stake = max_tokens, temperature, top_p, max_stake
         self.timing_path = Path(timing_path) if timing_path else None
         self.group_size = group_size  # villages played in lockstep by this player; the timing rows carry it
+        self.key_fn = key_fn  # Request -> sampling key string (herding.py passes its own, LOG 2026-09-29)
         self.gen = BatchGenerator(
             model,
             max_tokens=max_tokens,
@@ -318,7 +324,7 @@ class ModelPlayers:
             caches.append(cache)
             all_tokens.append(list(ids))
             n_prefix += len(ids)
-            samplers.append(make_sampler(sample_key(req.seed, req.generation, req.episode, req.round, req.agent), self.temperature, self.top_p))
+            samplers.append(make_sampler(self.key_fn(req), self.temperature, self.top_p))
         uids = self.gen.insert(prompts, [self.max_tokens] * len(prompts), caches=caches, all_tokens=all_tokens, samplers=samplers)
         toks = {u: [] for u in uids}
         fin = {u: None for u in uids}
