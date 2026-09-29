@@ -404,6 +404,13 @@ def test_copying_cells_and_pull_on_scripted_pools():
     assert pull["S"]["cast_rate"] == 0 and pull["se"]["cast_rate"] is None
     pull = village.copying_pull(pool, 3, 0, 0, boot=8)
     assert pull["se"]["cast_rate"] is not None and pull["se"]["cast_rate"] >= 0 and pull["boot_n"]["cast_rate"] == 8
+    # the bootstrap resamples whole village-days: every replicate holds complete days (all agents)
+    days, keys = village._days_of(pool)
+    rep = village._resample_days(days, keys, __import__("random").Random(0))
+    assert len(rep) == len(pool) and all(sum(1 for e in rep if e.episode == ep.episode and e.agent == ep.agent) == sum(1 for e in rep if e.episode == ep.episode) // 3 for ep in rep)
+    # clustered SEs: agent 0 always casts after its own cast and the fishers always fish after fishing, so the streak is 1 in every replicate
+    reps = village.copying_cluster_boot([pool], 20, "t")
+    assert len(reps) == 20 and all(r["streak"] == 1.0 for r in reps) and village._sd([r["streak"] for r in reps]) == 0
 
 
 def test_project_gap_arithmetic():

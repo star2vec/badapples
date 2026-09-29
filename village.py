@@ -993,11 +993,53 @@ def _sum_cells(cell_list) -> dict:
     return out
 
 
+def _days_of(pool) -> tuple:
+    """The pool's episodes grouped by village-day (all agents of one day), and the sorted day keys."""
+    days = {}
+    for ep in pool:
+        days.setdefault(ep.episode, []).append(ep)
+    return days, sorted(days)
+
+
+def _resample_days(days, keys, rng) -> list:
+    """One bootstrap replicate of a pool: as many village-days as the pool has, drawn with
+    replacement, each with all of its agents, so every observer keeps the context of its own
+    day. A day drawn twice appears twice; its turns keep their keys, which is right for the
+    context lookup (the same day has the same context)."""
+    sample = []
+    for _ in keys:
+        sample += days[keys[rng.randrange(len(keys))]]
+    return sample
+
+
+def copying_cluster_boot(pools, boot: int, rng_key: str, attempts: bool = False) -> list:
+    """Day-clustered bootstrap of the pooled copying measures over a group of villages: every
+    replicate resamples each village's days (stratified by village), sums the cells and
+    recomputes the contrast, the after-won rate and the streak. The binomial SEs of
+    copying_measures treat every observer-round as independent; rounds of one village-day are
+    not (the agents share the day's events and messages), so these are the SEs to read."""
+    rng = random.Random(rng_key)
+    grouped = [_days_of(pool) for pool in pools]
+    reps = []
+    for _ in range(boot):
+        cells = _sum_cells([copying_cells(_resample_days(days, keys, rng)) for days, keys in grouped])
+        m = copying_measures(cells, attempts)
+        reps.append({"contrast": m["contrast"]["value"], "streak": m["streak"]["value"], "after_won": m["cond"]["won"]["rate"]})
+    return reps
+
+
+def _sd(values):
+    vals = [v for v in values if v is not None]
+    return statistics.stdev(vals) if len(vals) > 1 else None
+
+
 def copying_pull(pool, k: int, seed: int, generation: int, boot: int = 0, boot_seed: int = 0) -> dict:
     """The selection differential at k on the cast rate and on the copying measures (the
     selected days' observers against the population's), with a day-level bootstrap SE when
-    boot > 0: the pool's days are resampled with replacement, the top k reselected, the
-    differentials recomputed; the SE is their standard deviation."""
+    boot > 0: the pool's village-days (all agents of a day together) are resampled with
+    replacement, the top k agent-days reselected, the differentials recomputed; the SE is their
+    standard deviation. (Resampling single agent-days, as the first version did, drops other
+    agents from an observer's day and misclassifies its context; fixed 2026-09-29.)"""
 
     def measures(p, sel):
         pop, s = copying_measures(copying_cells(p)), copying_measures(copying_cells(p, sel))
@@ -1012,9 +1054,10 @@ def copying_pull(pool, k: int, seed: int, generation: int, boot: int = 0, boot_s
     out = {"k": k, "S": point, "se": {m: None for m in point}, "boot": boot}
     if boot:
         rng = random.Random(f"{boot_seed}/copying/bootstrap/{seed}/g{generation}")
+        days, keys = _days_of(pool)
         draws = {m: [] for m in point}
         for _ in range(boot):
-            sample = [pool[rng.randrange(len(pool))] for _ in pool]
+            sample = _resample_days(days, keys, rng)
             got = measures(sample, pond.select(sample, k, seed, generation))
             for m, v in got.items():
                 if v is not None:
@@ -1030,10 +1073,12 @@ def cmd_copying(a):
     cast rate and on the copying measures with a day-level bootstrap SE."""
     run = Path(a.run)
     per = {}
+    pools = {}
     for pd in _play_dirs(run):
         for d in sorted(x for x in pd.iterdir() if x.is_dir() and (x / "summary.json").exists()):
             pool, summary = _load_village(d)
             g = summary["generation"]
+            pools[(d.name, g)] = pool
             cells = copying_cells(pool)
             k = a.k or summary["k"]
             per[(d.name, g)] = {"village": d.name, "arm": summary["arm"], "generation": g, "cells": {f"{c}|{o}": v for (c, o), v in cells.items()},
@@ -1053,6 +1098,14 @@ def cmd_copying(a):
             pooled[f"{arm}_g{g}"] = {"villages": len(keys), "real": copying_measures(cells), "with_attempts": copying_measures(cells, attempts=True),
                                      "population_cast_rate": sum(per[key]["population"]["cast_rate"] * per[key]["population"]["turns"] for key in keys) / turns if turns else None,
                                      "frac_after_won": (sum(cells[("won", o)][0] for o in OWN_PREV) / sum(v[0] for v in cells.values())) if any(v[0] for v in cells.values()) else None}
+            if a.cluster_boot:
+                reps = copying_cluster_boot([pools[key] for key in sorted(keys)], a.cluster_boot, f"{a.bootstrap_seed}/copying/cluster/{arm}_g{g}")
+                pooled[f"{arm}_g{g}"]["cluster_se"] = {m: _sd([r[m] for r in reps]) for m in ("contrast", "streak", "after_won")}
+                pooled[f"{arm}_g{g}"]["cluster_reps"] = len(reps)
+    if a.cluster_boot:
+        for key, p in per.items():
+            reps = copying_cluster_boot([pools[key]], a.cluster_boot, f"{a.bootstrap_seed}/copying/cluster/{key[0]}_g{key[1]}")
+            p["cluster_se"] = {m: _sd([r[m] for r in reps]) for m in ("contrast", "streak", "after_won")}
     sgn = lambda x, d=3: "-" if x is None else f"{x:+.{d}f}"
     lvl = lambda x, d=3: "-" if x is None else f"{x:.{d}f}"
     cell = lambda m, key: f"{lvl(m['cells'][key]['rate'])} ± {lvl(m['cells'][key]['se'])} [{m['cells'][key]['n']}]"
@@ -1068,12 +1121,18 @@ def cmd_copying(a):
                          cell(m, "no_cast|cast"), cell(m, "no_cast|fish"), f"{sgn(m['contrast']['value'])} ± {lvl(m['contrast']['se'])}",
                          f"{sgn(m['streak']['value'])} ± {lvl(m['streak']['se'])}"])
         lines += _md_table(header, rows)
+        if variant == "real" and a.cluster_boot:
+            lines.append("  day-clustered bootstrap SEs (real casts; read these, the binomial ones above assume independent rounds): " + "; ".join(
+                f"{name} contrast ± {lvl(p['cluster_se']['contrast'])}, streak ± {lvl(p['cluster_se']['streak'])}" for name, p in pooled.items()))
         for g in gens:
             v, l = pooled.get(f"villagers_g{g}"), pooled.get(f"loners_g{g}")
             if v and l:
                 cv, cl = v[variant]["contrast"], l[variant]["contrast"]
                 if cv["value"] is not None and cl["value"] is not None:
-                    lines.append(f"  g{g}: villagers − loners on the contrast {sgn(cv['value'] - cl['value'])} ± {lvl(math.sqrt(cv['se'] ** 2 + cl['se'] ** 2))}; "
+                    clus = ""
+                    if variant == "real" and a.cluster_boot and v["cluster_se"]["contrast"] is not None and l["cluster_se"]["contrast"] is not None:
+                        clus = f" (clustered ± {lvl(math.sqrt(v['cluster_se']['contrast'] ** 2 + l['cluster_se']['contrast'] ** 2))}; streak difference {sgn(v['real']['streak']['value'] - l['real']['streak']['value'])} clustered ± {lvl(math.sqrt(v['cluster_se']['streak'] ** 2 + l['cluster_se']['streak'] ** 2))})"
+                    lines.append(f"  g{g}: villagers − loners on the contrast {sgn(cv['value'] - cl['value'])} ± {lvl(math.sqrt(cv['se'] ** 2 + cl['se'] ** 2))}{clus}; "
                                  f"by own action: " + ", ".join(
                                      f"{o} {sgn(v[variant]['contrast_by_own'][o]['value'] - l[variant]['contrast_by_own'][o]['value']) if v[variant]['contrast_by_own'][o]['value'] is not None and l[variant]['contrast_by_own'][o]['value'] is not None else '-'}"
                                      for o in OWN_PREV))
@@ -1081,13 +1140,17 @@ def cmd_copying(a):
     for key in sorted(per):
         p = per[key]
         m, pu = p["real"], p["pull"]
-        lines.append(f"  {p['village']} g{p['generation']}: contrast {sgn(m['contrast']['value'])} ± {lvl(m['contrast']['se'])}; streak {sgn(m['streak']['value'])} ± {lvl(m['streak']['se'])}; "
+        cs = p.get("cluster_se") or {}
+        lines.append(f"  {p['village']} g{p['generation']}: contrast {sgn(m['contrast']['value'])} ± {lvl(m['contrast']['se'])}"
+                     + (f" [clustered ± {lvl(cs.get('contrast'))}]" if cs else "")
+                     + f"; streak {sgn(m['streak']['value'])} ± {lvl(m['streak']['se'])}" + (f" [clustered ± {lvl(cs.get('streak'))}]" if cs else "") + "; "
                      f"pull k={pu['k']}: cast {sgn(pu['S']['cast_rate'])} ± {lvl(pu['se']['cast_rate'])}, after-won {sgn(pu['S']['after_won'])} ± {lvl(pu['se']['after_won'])}, "
                      f"contrast {sgn(pu['S']['contrast'])} ± {lvl(pu['se']['contrast'])}, streak {sgn(pu['S']['streak'])} ± {lvl(pu['se']['streak'])}")
     text = "\n".join(lines)
     print(text)
     with open(a.out, "w") as fid:
-        json.dump({"run": str(run), "k": a.k, "bootstrap": a.bootstrap, "per_village_generation": [per[key] for key in sorted(per)], "pooled": pooled}, fid, indent=1)
+        json.dump({"run": str(run), "k": a.k, "bootstrap": a.bootstrap, "cluster_boot": a.cluster_boot,
+                   "per_village_generation": [per[key] for key in sorted(per)], "pooled": pooled}, fid, indent=1)
         fid.write("\n")
     print(f"wrote {a.out}")
 
@@ -1374,6 +1437,7 @@ def main():
     y.add_argument("--k", type=int, default=None, help="k for the pull (default: each summary's own k)")
     y.add_argument("--bootstrap", type=int, default=0, help="day-level bootstrap resamples for the pull's SE (0 = none)")
     y.add_argument("--bootstrap-seed", type=int, default=0)
+    y.add_argument("--cluster-boot", type=int, default=0, help="day-clustered bootstrap resamples for the contrast and streak SEs (0 = none)")
     y.set_defaults(fn=cmd_copying)
     j = sub.add_parser("project", help="villager minus loner drift gap after G generations at one k, with its noise (no model)")
     j.add_argument("--pulls", nargs="+", required=True, help="copying.json files holding generation-zero pulls (one entry per village)")
